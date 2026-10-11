@@ -2,6 +2,47 @@
 
 Newest entry first. Every session, human or AI, adds one entry.
 
+## Session 25 · Going live: key formats, models, storage errors, voice setup · Claude Opus 5.5
+
+**What:**
+- **Deploy fixes:** `vercel.json` pins the install and build commands (the project's install command had been set to `npm run build`).
+- **New key formats:** Supabase `sb_secret_` keys go in the `apikey` header only. Gemini is called through its own API, which accepts `AQ.` and `AIza` keys.
+- **Pasted settings:** a Supabase URL with `/rest/v1/`, or values with spaces, line breaks or quotes, now work. The public key in the secret's place is named.
+- **Storage errors explained:** every storage error and `/api/health` now say what Supabase answered.
+- **Current models:** defaults are `openai/gpt-oss-120b` (Groq) and `gemini-flash-latest`, checked against both providers' model lists with the team's keys. Groq handles photos only when `GROQ_VISION_MODEL` is set.
+- **`npm run check:keys`** tests every key in `.env` without printing it.
+- **Set up with AI reads informal descriptions** (a home with "room 1 (1 fan 1 light)", "bath room", "24/7"):
+  - the server reads the answer leniently, so one odd field no longer loses the whole answer;
+  - code makes room ids from names, maps home rooms to "other", fills floor names and reads numbers sent as text;
+  - zero counts for devices never mentioned are left out quietly.
+- **Voice:**
+  - "Set up with AI" has **Speak** (English, Hindi, Kannada) through the browser's own speech recognition, and reads a short summary back;
+  - Devanagari and Kannada digits become 0-9 so spoken numbers pass the server's check;
+  - the Copilot and the setup dialog share `src/ui/components/speech.ts`.
+- **Blue for AI:** the "Set up with AI" button uses a new `--ai` token (blue), so it stands out.
+
+**Created / Modified:**
+- `vercel.json`, `scripts/check-keys.mjs`, `package.json`;
+- `api/_lib/{db,http,llm,auth}.ts`, `api/_routes/{workspace,site,cameras,events,health,status}.ts`, `api/_routes/ai/setup.ts`, the API tests;
+- `src/twin/realtime.ts`, `src/ui/components/{AiSetup,Copilot}.tsx`, `src/ui/components/speech.ts` (new), `src/ui/pages/Setup.tsx`, `src/index.css`;
+- `.env.example`, DEPLOY, DESIGN_SYSTEM, USER_GUIDE.
+
+**Checks:**
+- 85 tests pass; `npx tsc -b` and a clean-clone `npm install` and `npm run build` pass.
+- `npm run check:keys` passes against the team's real Supabase, Groq, Gemini and Telegram.
+- Against the real services on localhost:
+  - workspace create, open, wrong password, site, camera and event writes, and an AI recommendation all work;
+  - the team's own home description produced 5 rooms with their devices and 24/7 hours.
+- The test workspaces were deleted afterwards.
+
+**Known issues:**
+- The deployed site sits behind Vercel Authentication; turn it off for production so phones and the public view can open it.
+- Speech recognition needs Chrome, Edge or Safari.
+
+**Next:**
+- Set the Vercel environment variables (`VITE_` ones as Config, the rest as Secret).
+- Push, then open `/api/health` and create the first workspace.
+
 ## Session 24 · Launch: workspaces, camera station, Set up with AI, free hosting · Claude Opus 5.5
 
 **What:** The plan in `docs/LAUNCH_PLAN.md`, built and tested.

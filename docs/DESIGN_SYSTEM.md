@@ -36,6 +36,7 @@ Define in `src/index.css`. Components use Tailwind classes mapped to these token
 | `--status-waste` | `#C2342A` | `#F87171` | Empty but drawing power |
 | `--status-warn` | `#955900` | `#FBBF24` | CO2 high, underused, stale |
 | `--simulated` | `#7C5CC4` | `#B39DF0` | "Modelled" badge on what-if numbers |
+| `--ai`, `--on-ai` | `#1D4ED8` on `#FFFFFF` | `#7CB2FF` on `#1F1C19` | The one cool colour, kept for AI actions (Set up with AI) so they stand out among warm controls; contrast 6.7:1 and 7.8:1 |
 
 | Other | Value |
 | --- | --- |

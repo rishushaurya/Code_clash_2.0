@@ -23,6 +23,9 @@
   --status-waste: #c2342a;
   --status-warn: #955900;
   --simulated: #7c5cc4;
+  /* AI actions (Set up with AI): the one cool colour, so they stand out among warm controls */
+  --ai: #1d4ed8;
+  --on-ai: #ffffff;
   --shadow-card: 0 1px 2px rgb(41 36 31 / 0.04), 0 8px 24px -12px rgb(41 36 31 / 0.12);
 }
 
@@ -43,6 +46,8 @@
   --status-waste: #f87171;
   --status-warn: #fbbf24;
   --simulated: #b39df0;
+  --ai: #7cb2ff;
+  --on-ai: #1f1c19;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
 }
 
@@ -109,6 +114,8 @@
   --color-simulated: var(--simulated);
   --color-brand: var(--brand);
   --color-highlight: var(--highlight);
+  --color-ai: var(--ai);
+  --color-on-ai: var(--on-ai);
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) * 1.5);

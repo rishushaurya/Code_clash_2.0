@@ -1,9 +1,9 @@
-// "Set up with AI": describe the building in your own words, the AI reads it into the setup form.
+// "Set up with AI": describe the building in your own words, typed or spoken, the AI reads it into the setup form.
 // It only fills the form. Nothing is saved until you review it and press Save, numbers you did not write
 // are left out (the server checks), and values taken from room templates are listed for you to check.
 
-import { ClipboardCopy, Sparkles, TriangleAlert } from 'lucide-react'
-import { useState } from 'react'
+import { ClipboardCopy, Mic, Square, Sparkles, TriangleAlert } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { setupFromText } from '@/ai/client'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { applySetupDraft, COUNTRY_PRESETS, ROOM_TEMPLATES, type SetupDraft } from '@/shared/site'
 import type { Site } from '@/shared/types'
 import { online } from '@/shared/workspace'
+import { canListen, recognition, speak, type Recognition } from './speech'
 
 const FORMAT = `Organization: City Engineering College
 Building: Main Block
@@ -27,6 +28,14 @@ CR-101 | Classroom 101 | floor 1 | classroom | 60 seats | 10 lights, 6 fans, 1 p
 LAB-1 | Computer Lab | floor 1 | lab | 40 seats | 12 lights, 2 ACs, 40 PCs, no windows`
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const VOICES = [
+  { lang: 'en-IN', label: 'English' },
+  { lang: 'hi-IN', label: 'Hindi' },
+  { lang: 'kn-IN', label: 'Kannada' },
+]
+/** Devanagari and Kannada digits as 0-9, so spoken numbers pass the server's check that every number was said */
+export const asciiDigits = (t: string) =>
+  t.replace(/[०-९೦-೯]/g, (d) => String(d.charCodeAt(0) - (d.charCodeAt(0) >= 0x0ce6 ? 0x0ce6 : 0x0966)))
 
 interface Place {
   name: string
@@ -49,9 +58,36 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
   const [state, setState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [error, setError] = useState('')
   const [result, setResult] = useState<Result | null>(null)
+  const [lang, setLang] = useState('en-IN')
+  const [listening, setListening] = useState(false)
+  const [spoken, setSpoken] = useState(false)
+  const recRef = useRef<Recognition | null>(null)
   const preview = result ? applySetupDraft(draft, result.draft) : null
 
+  /** Dictation: what you say is added to the description; press again to stop. */
+  function toggleVoice() {
+    if (listening) return recRef.current?.stop()
+    const rec = recognition(lang, true)
+    if (!rec) return
+    const before = text.trimEnd() ? `${text.trimEnd()}\n` : ''
+    rec.onresult = (e) => {
+      let said = ''
+      for (let i = 0; i < e.results.length; i++) said += `${e.results[i][0].transcript}${e.results[i].isFinal ? '\n' : ''}`
+      setText(asciiDigits(before + said).slice(0, 8000))
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => {
+      setListening(false)
+      toast.error('The microphone is not available. Allow it in the address bar, or type instead.')
+    }
+    recRef.current = rec
+    setListening(true)
+    setSpoken(true)
+    rec.start()
+  }
+
   async function read() {
+    recRef.current?.stop()
     setState('reading')
     setError('')
     try {
@@ -66,6 +102,12 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
       }
       setResult({ ...out, place })
       setState('idle')
+      // Spoken in, so spoken back: a summary counted by code, then the person checks the screen.
+      if (spoken) {
+        const rooms = out.draft.rooms?.length ?? 0
+        const toCheck = out.dropped.length + out.unclear.length
+        speak(`I found ${rooms} ${rooms === 1 ? 'room' : 'rooms'}${toCheck ? `, and ${toCheck} ${toCheck === 1 ? 'thing' : 'things'} to check` : ''}. Please review it on screen, then fill the form.`)
+      }
     } catch (e) {
       const status = String(e)
       setError(
@@ -100,7 +142,7 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={!online()} title={online() ? 'Describe your building and let the AI fill the form' : 'Needs the online version with an AI key'}>
+        <Button className="bg-ai text-on-ai shadow-sm hover:bg-ai/90" disabled={!online()} title={online() ? 'Describe your building, by typing or speaking, and let the AI fill the form' : 'Needs the online version with an AI key'}>
           <Sparkles aria-hidden /> Set up with AI
         </Button>
       </DialogTrigger>
@@ -122,7 +164,34 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
               <p className="mt-2 text-xs text-muted-foreground">Write numbers in digits. Anything you leave out stays as it is in the form. Room types: {Object.values(ROOM_TEMPLATES).map((t) => t.label.toLowerCase()).join(', ')}.</p>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="ai-setup-text">Your building</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="ai-setup-text">Your building</Label>
+                {canListen && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="Language you will speak"
+                      className="h-8 rounded-md border bg-background px-2 text-sm"
+                      value={lang}
+                      disabled={listening}
+                      onChange={(e) => setLang(e.target.value)}
+                    >
+                      {VOICES.map((v) => (
+                        <option key={v.lang} value={v.lang}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="button" size="sm" variant={listening ? 'default' : 'outline'} onClick={toggleVoice} aria-pressed={listening}>
+                      {listening ? <Square aria-hidden /> : <Mic aria-hidden />} {listening ? 'Stop' : 'Speak'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {listening && (
+                <p role="status" className="text-xs text-highlight">
+                  Listening. Describe the building, its floors, then each room with its seats and devices. Say numbers clearly. Press Stop when done.
+                </p>
+              )}
               <textarea
                 id="ai-setup-text"
                 className="num min-h-48 w-full rounded-md border bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -131,7 +200,10 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Describe the building, its floors and its rooms"
               />
-              <p className="num text-right text-xs text-muted-foreground">{text.length} / 8000</p>
+              <p className="num flex justify-between gap-2 text-xs text-muted-foreground">
+                <span>{canListen ? "Typed or spoken. Your browser's speech service turns speech into text; you can correct it here." : ''}</span>
+                <span>{text.length} / 8000</span>
+              </p>
             </div>
             {state === 'error' && (
               <p role="alert" className="rounded-md border border-waste/50 bg-waste/10 p-2 text-sm text-waste">

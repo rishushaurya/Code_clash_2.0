@@ -56,7 +56,7 @@ Everything you do inside belongs to that workspace: rooms, cameras, live data, a
 
 ## 4. Set up your building (Setup page)
 
-The quick way: press **Set up with AI**, start from the suggested format, describe your building, and press **Read it into the form**. Review the result (any number not in your text is left out and listed; values taken from room templates are listed too), press **Fill the form**, check it, and **Save**. The AI only fills the form; it saves nothing and can do nothing else.
+The quick way: press the blue **Set up with AI** button, start from the suggested format, describe your building (or press **Speak** and say it, in English, Hindi or Kannada), and press **Read it into the form**. Plain, informal sentences work: "4 rooms, room 1 has 1 fan and 1 light, open 24/7"; rooms without ids get one (`R-1`, `BR-1`). Review the result (any number not in your text is left out and listed; values taken from room templates are listed too), press **Fill the form**, check it, and **Save**. The AI only fills the form; it saves nothing and can do nothing else.
 
 By hand:
 

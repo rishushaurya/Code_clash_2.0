@@ -140,6 +140,13 @@ describe('set up with AI', () => {
   })
 })
 
+describe('spoken setup', () => {
+  it('turns Devanagari and Kannada digits into 0-9, so spoken numbers pass the server check', async () => {
+    const { asciiDigits } = await import('@/ui/components/AiSetup')
+    expect(asciiDigits('१६ lights, ೧೨೦ seats, 8 fans, ०')).toBe('16 lights, 120 seats, 8 fans, 0')
+  })
+})
+
 describe('cooling advice', () => {
   it('flags ACs in an occupied room only when the outside is at or below 24 C', async () => {
     const { alertTypesFor } = await import('./rules')

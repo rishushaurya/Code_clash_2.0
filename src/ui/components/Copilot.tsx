@@ -10,10 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getSite } from '@/shared/site'
-
-type Recognition = { lang: string; interimResults: boolean; onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void; onend: () => void; onerror: () => void; start(): void; stop(): void }
-const SpeechRecognitionCtor = (window as unknown as Record<string, (new () => Recognition) | undefined>).SpeechRecognition ??
-  (window as unknown as Record<string, (new () => Recognition) | undefined>).webkitSpeechRecognition
+import { canListen, recognition, speak } from './speech'
 
 const TOOL_LABEL: Record<CopilotTool['tool'], string> = {
   runScenario: 'Ran the simulation',
@@ -51,19 +48,12 @@ export function Copilot() {
     }
     setTurn({ q: question, tool, answer, ai })
     setBusy(false)
-    try {
-      speechSynthesis.cancel()
-      speechSynthesis.speak(Object.assign(new SpeechSynthesisUtterance(answer.replaceAll('₹', 'rupees ')), { lang: 'en-IN' }))
-    } catch {
-      // No speech output on this device; the answer is on screen.
-    }
+    speak(answer)
   }
 
   function listen() {
-    if (!SpeechRecognitionCtor) return
-    const rec = new SpeechRecognitionCtor()
-    rec.lang = 'en-IN'
-    rec.interimResults = false
+    const rec = recognition('en-IN')
+    if (!rec) return
     rec.onresult = (e) => {
       const text = e.results[0][0].transcript
       setQ(text)
@@ -91,7 +81,7 @@ export function Copilot() {
           }}
         >
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="What would auto-off save this semester?" aria-label="Question for the building" />
-          {SpeechRecognitionCtor && (
+          {canListen && (
             <Button type="button" variant="outline" size="icon" onClick={listen} disabled={listening || busy} aria-label={listening ? 'Listening' : 'Ask by voice'} title="Ask by voice">
               {listening ? <MicOff aria-hidden /> : <Mic aria-hidden />}
             </Button>
