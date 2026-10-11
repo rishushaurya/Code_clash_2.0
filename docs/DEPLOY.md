@@ -17,7 +17,7 @@ When Pratibimb is sold to customers, move Vercel to Pro (commercial use) or anot
 
 | Key | Where it comes from | What it unlocks |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase, Project Settings, **Data API**, Project URL (or the **Connect** button at the top of the project), `https://<project-ref>.supabase.co` | Live channel (phones, cameras, sensors over the internet) |
+| `VITE_SUPABASE_URL` | Supabase, Project Settings, **Data API**, Project URL (or the **Connect** button at the top of the project), `https://<project-ref>.supabase.co`, without `/rest/v1/` | Live channel (phones, cameras, sensors over the internet) |
 | `VITE_SUPABASE_ANON_KEY` | Supabase, Project Settings, **API Keys**, Publishable key (`sb_publishable_...`); a legacy `anon` key also works | Same; it is public by design and can read or write no table |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase, Project Settings, **API Keys**, Secret key (`sb_secret_...`, press the eye to reveal it); a legacy `service_role` key also works | Server storage: workspaces, sites, cameras, events. **Secret.** |
 | `WORKSPACE_SECRET` | You generate it (step 3) | Signs workspace sessions; derives channel names and sensor keys. **Secret.** |
@@ -81,7 +81,7 @@ Changing `WORKSPACE_SECRET` later signs everyone out and changes every sensor ke
 - **Groq:** console.groq.com, sign in, API Keys, Create API Key.
 - **Gemini:** aistudio.google.com, Get API key, Create API key.
 
-One is enough; with both, Pratibimb uses Groq first and Gemini when Groq is busy, and Gemini first for photos. The models are set by `GROQ_MODEL`, `GROQ_VISION_MODEL` and `GEMINI_MODEL` (defaults in `.env.example`); change them there if a provider retires one.
+One is enough; with both, Pratibimb uses Groq first and Gemini when Groq is busy, and Gemini first for photos. The defaults are `openai/gpt-oss-120b` on Groq and `gemini-flash-latest` on Gemini (an alias Google moves to its current Flash model); leave `GROQ_MODEL`, `GROQ_VISION_MODEL` and `GEMINI_MODEL` empty to use them. Providers retire models often: `npm run check:keys` reports a retired model by name.
 
 ## 6. Vercel
 

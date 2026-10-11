@@ -39,7 +39,8 @@ const publicLocal = bc(PUBLIC_CHANNEL)
 if (privateLocal) privateLocal.onmessage = (e) => dispatch(e.data.event, e.data.payload)
 if (publicLocal && !member) publicLocal.onmessage = (e) => e.data.event === 'snapshot' && dispatch('snapshot', e.data.payload)
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
+// The project URL, also when the REST address (…/rest/v1/) was pasted instead.
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/(\/rest\/v1)?\/*$/, '')
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 let remotePrivate: RealtimeChannel | null = null
 let remotePublic: RealtimeChannel | null = null

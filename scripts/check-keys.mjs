@@ -14,14 +14,16 @@ const short = async (res) => `${res.status} ${(await res.text()).replace(/\s+/g,
 const json = (o) => JSON.stringify(o)
 
 // Supabase
-const url = (env.SUPABASE_URL || env.VITE_SUPABASE_URL || '').replace(/\/+$/, '')
+const raw = env.SUPABASE_URL || env.VITE_SUPABASE_URL || ''
+// The app also accepts the REST address (…/rest/v1/); the checker tests what the app will use.
+const url = raw.replace(/(\/rest\/v1)?\/*$/, '')
 const secret = env.SUPABASE_SERVICE_ROLE_KEY
 const publicKey = env.VITE_SUPABASE_ANON_KEY
 // Secret keys (sb_secret_...) are not JWTs: apikey header only. Legacy keys are JWTs: both headers.
 const headers = (key) => ({ apikey: key, 'content-type': 'application/json', ...(key.startsWith('eyJ') ? { authorization: `Bearer ${key}` } : {}) })
 
 if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url)) say(url ? 'FAIL' : 'SKIP', 'Supabase URL', url ? 'expected https://<project-ref>.supabase.co' : 'VITE_SUPABASE_URL is empty')
-else say('PASS', 'Supabase URL')
+else say('PASS', 'Supabase URL', url !== raw.replace(/\/+$/, '') ? 'ends in /rest/v1; the app strips it, but the project URL alone is cleaner' : '')
 
 if (url && secret) {
   for (const table of ['workspaces', 'sites', 'events']) {
@@ -58,14 +60,14 @@ if (env.GROQ_API_KEY) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${env.GROQ_API_KEY}` },
-    body: json({ model: env.GROQ_MODEL || 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: ask }], response_format: { type: 'json_object' } }),
+    body: json({ model: env.GROQ_MODEL || 'openai/gpt-oss-120b', messages: [{ role: 'user', content: ask }], response_format: { type: 'json_object' } }),
   }).catch((e) => e)
   if (res instanceof Error) say('FAIL', 'Groq', res.message)
-  else say(res.ok ? 'PASS' : 'FAIL', `Groq (${env.GROQ_MODEL || 'llama-3.3-70b-versatile'})`, res.ok ? '' : await short(res))
+  else say(res.ok ? 'PASS' : 'FAIL', `Groq (${env.GROQ_MODEL || 'openai/gpt-oss-120b'})`, res.ok ? '' : await short(res))
 } else say('SKIP', 'Groq', 'GROQ_API_KEY is empty')
 
 if (env.GEMINI_API_KEY) {
-  const model = env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = env.GEMINI_MODEL || 'gemini-flash-latest'
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },

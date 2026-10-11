@@ -11,22 +11,26 @@ interface Provider {
   model: string
 }
 
-/** Text calls go to Groq first (fast on stage). Image calls go to Gemini first: it is trained to return boxes. */
+/**
+ * Text calls go to Groq first (fast). Image calls go to Gemini, which returns boxes, and to Groq only when
+ * GROQ_VISION_MODEL names a vision model (Groq's catalogue changes often). Defaults checked against both
+ * providers' model lists; gemini-flash-latest follows Google's current Flash model.
+ */
 const providers = (vision = false): Provider[] => {
   const groq: Provider = {
     name: 'groq',
     url: 'https://api.groq.com/openai/v1/chat/completions',
     key: process.env.GROQ_API_KEY,
-    model: vision ? process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct' : process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    model: (vision ? process.env.GROQ_VISION_MODEL : process.env.GROQ_MODEL) || 'openai/gpt-oss-120b',
   }
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest'
   const gemini: Provider = {
     name: 'gemini',
     url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     key: process.env.GEMINI_API_KEY,
     model,
   }
-  return vision ? [gemini, groq] : [groq, gemini]
+  return vision ? [gemini, ...(process.env.GROQ_VISION_MODEL ? [groq] : [])] : [groq, gemini]
 }
 
 export const aiConfigured = () => providers().some((p) => p.key)

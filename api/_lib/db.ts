@@ -6,7 +6,8 @@
  * Supabase rejects them in Authorization. Legacy keys are JWTs and go in both.
  */
 export function supabase() {
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.replace(/\/+$/, '')
+  // The project URL, also when the REST address (…/rest/v1/) was pasted instead.
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.replace(/(\/rest\/v1)?\/*$/, '')
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
   const headers: Record<string, string> = { apikey: key, 'content-type': 'application/json' }

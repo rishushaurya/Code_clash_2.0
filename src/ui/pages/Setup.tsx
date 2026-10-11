@@ -137,7 +137,7 @@ function IntegrationStatus({ chatId, onChatId }: { chatId: string; onChatId: (v:
     { key: 'workspaces', label: 'Online workspaces, shared by every device', env: 'SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WORKSPACE_SECRET' },
     { key: 'realtime', label: 'Phones, cameras and sensors over the internet', env: 'VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY' },
     { key: 'ai', label: 'AI recommendations, reports, Copilot and Set up with AI', env: 'GROQ_API_KEY or GEMINI_API_KEY' },
-    { key: 'aiVision', label: 'AI Surveyor (photo to device list)', env: 'GEMINI_API_KEY or GROQ_API_KEY' },
+    { key: 'aiVision', label: 'AI Surveyor (photo to device list)', env: 'GEMINI_API_KEY' },
     { key: 'commandWebhook', label: 'Commands to your control system', env: 'COMMAND_WEBHOOK_URL, COMMAND_WEBHOOK_SECRET' },
     { key: 'telegram', label: 'Telegram alerts with a switch-off button', env: 'TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET' },
   ]

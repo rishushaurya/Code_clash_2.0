@@ -35,7 +35,7 @@ describe('chatJson', () => {
 
     expect(await chatJson('s', 'u', z.object({ text: z.string() }))).toEqual({ text: 'ok' })
     const [url, init] = fetchMock.mock.calls[1]
-    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent')
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent')
     // Gemini's own API key header, which takes both AIza and AQ. keys; never a Bearer token.
     expect(init.headers).toEqual({ 'content-type': 'application/json', 'x-goog-api-key': 'test' })
     expect(JSON.parse(init.body)).toMatchObject({ systemInstruction: { parts: [{ text: 's' }] }, contents: [{ role: 'user', parts: [{ text: 'u' }] }], generationConfig: { responseMimeType: 'application/json' } })
@@ -43,7 +43,8 @@ describe('chatJson', () => {
 
   it('sends new Supabase secret keys in apikey only, and legacy JWT keys in both headers', async () => {
     const { supabase } = await import('./db.js')
-    vi.stubEnv('SUPABASE_URL', 'https://abc.supabase.co/')
+    // The REST address pasted from the dashboard works as well as the project URL.
+    vi.stubEnv('SUPABASE_URL', 'https://abc.supabase.co/rest/v1/')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'sb_secret_xyz')
     expect(supabase()).toEqual({ url: 'https://abc.supabase.co', headers: { apikey: 'sb_secret_xyz', 'content-type': 'application/json' } })
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'eyJhbGciOi.legacy.jwt')

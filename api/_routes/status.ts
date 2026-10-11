@@ -9,7 +9,7 @@ export function GET() {
   const storage = (has('SUPABASE_URL') || has('VITE_SUPABASE_URL')) && has('SUPABASE_SERVICE_ROLE_KEY')
   return json({
     ai: aiConfigured(),
-    aiVision: has('GEMINI_API_KEY') || has('GROQ_API_KEY'),
+    aiVision: has('GEMINI_API_KEY') || (has('GROQ_API_KEY') && has('GROQ_VISION_MODEL')),
     workspaces: storage && authConfigured(),
     realtime: storage && has('VITE_SUPABASE_ANON_KEY'),
     telegram: has('TELEGRAM_BOT_TOKEN') && has('TELEGRAM_WEBHOOK_SECRET'),
