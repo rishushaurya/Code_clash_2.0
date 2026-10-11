@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Design tokens: docs/DESIGN_SYSTEM.md. Components use these through Tailwind, never raw hex. */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Warm light (default): ivory paper, ink buttons, terracotta highlight */
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --surface-2: #f2ede4;
+  --border-c: #e4dccf;
+  --text: #29241f;
+  --text-muted: #6b6259;
+  --brand: #29241f;
+  --on-brand: #faf8f4;
+  --highlight: #ad4f2b;
+  --on-highlight: #ffffff;
+  --status-occupied: #12703a;
+  --status-idle: #736a61;
+  --status-waste: #c2342a;
+  --status-warn: #955900;
+  --simulated: #7c5cc4;
+  --shadow-card: 0 1px 2px rgb(41 36 31 / 0.04), 0 8px 24px -12px rgb(41 36 31 / 0.12);
+}
+
+.dark {
+  /* Warm dark: roasted, not blue-black */
+  --bg: #1f1c19;
+  --surface: #29251f;
+  --surface-2: #342f28;
+  --border-c: #463f36;
+  --text: #f4efe7;
+  --text-muted: #b5aa9c;
+  --brand: #f4efe7;
+  --on-brand: #1f1c19;
+  --highlight: #e0835e;
+  --on-highlight: #1f1c19;
+  --status-occupied: #4ade80;
+  --status-idle: #8a8178;
+  --status-waste: #f87171;
+  --status-warn: #fbbf24;
+  --simulated: #b39df0;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+/* shadcn/ui reads these names; they point at our tokens (DESIGN_SYSTEM section 7). */
+:root,
+.dark {
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--brand);
+  --primary-foreground: var(--on-brand);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--status-waste);
+  --border: var(--border-c);
+  --input: var(--surface-2);
+  --ring: var(--highlight);
+  --chart-1: var(--highlight);
+  --chart-2: var(--text-muted);
+  --chart-3: var(--status-occupied);
+  --chart-4: var(--status-warn);
+  --chart-5: var(--simulated);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-heading: "Fraunces", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-occupied: var(--status-occupied);
+  --color-idle: var(--status-idle);
+  --color-waste: var(--status-waste);
+  --color-warn: var(--status-warn);
+  --color-simulated: var(--simulated);
+  --color-brand: var(--brand);
+  --color-highlight: var(--highlight);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 2);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  h1, h2, h3, [data-slot="card-title"] {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+  }
+  [data-slot="card"] {
+    box-shadow: var(--shadow-card);
+  }
+  :focus-visible {
+    outline: 2px solid var(--highlight);
+    outline-offset: 2px;
+  }
+}
+
+/* Every number uses tabular digits so live tickers do not jitter. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Waste rooms: hatch plus a slow border pulse, so status is never colour alone. */
+@keyframes waste-pulse {
+  50% { stroke-opacity: 0.35; }
+}
+.waste-pulse {
+  animation: waste-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .print-page { box-shadow: none; border: none; }
+}

@@ -1,0 +1,16 @@
+# MediaMTX sample config: turns campus CCTV (RTSP) into WebRTC the camera page can play.
+# Run MediaMTX on a machine inside the campus network. Video never leaves the LAN.
+# Put real camera addresses and passwords only in your local copy, never in git.
+#
+# Camera page source: http://<this-machine>:8889/lh1/whep
+# Open the camera page from http://localhost or the LAN dev server (npm run dev),
+# because an HTTPS page cannot fetch an http:// stream.
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+
+paths:
+  lh1:
+    source: rtsp://USER:PASSWORD@CAMERA_IP:554/stream1
+    sourceOnDemand: yes
