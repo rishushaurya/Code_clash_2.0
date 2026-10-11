@@ -41,6 +41,17 @@ describe('chatJson', () => {
     expect(JSON.parse(init.body)).toMatchObject({ systemInstruction: { parts: [{ text: 's' }] }, contents: [{ role: 'user', parts: [{ text: 'u' }] }], generationConfig: { responseMimeType: 'application/json' } })
   })
 
+  it('tries Gemini Flash-Lite when Flash is overloaded', async () => {
+    vi.stubEnv('GROQ_API_KEY', '')
+    vi.stubEnv('GEMINI_API_KEY', 'test')
+    const busy = new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 })
+    const lite = new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"text":"ok"}' }] } }] }))
+    const fetchMock = vi.fn().mockResolvedValueOnce(busy).mockResolvedValueOnce(lite)
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await chatJson('s', 'u', z.object({ text: z.string() }))).toEqual({ text: 'ok' })
+    expect(fetchMock.mock.calls.map(([u]) => String(u).split('/models/')[1])).toEqual(['gemini-flash-latest:generateContent', 'gemini-flash-lite-latest:generateContent'])
+  })
+
   it('sends new Supabase secret keys in apikey only, and legacy JWT keys in both headers', async () => {
     const { supabase } = await import('./db.js')
     // The REST address pasted from the dashboard works as well as the project URL.

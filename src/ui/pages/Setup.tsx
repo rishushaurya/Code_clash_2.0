@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch'
 import { WATTS } from '@/shared/config'
 import { COUNTRY_PRESETS, deviceCounts, emptySite, makeDevices, parseSite, pushSite, ROOM_TEMPLATES, setSite, SiteSchema, useSite } from '@/shared/site'
 import { send } from '@/twin/realtime'
-import { authHeaders, ns, online, SESSION } from '@/shared/workspace'
+import { apiFetch, ns, online, SESSION } from '@/shared/workspace'
 import { AiSetup } from '@/ui/components/AiSetup'
 import type { AlertLanguage, DeviceType, Room, RoomType, Site } from '@/shared/types'
 import { clearUsage, observedLeftOnShare, observedOpenHours } from '@/twin/usage'
@@ -128,7 +128,7 @@ function IntegrationStatus({ chatId, onChatId }: { chatId: string; onChatId: (v:
       .then(setStatus)
       .catch(() => setStatus('error'))
     if (online())
-      fetch('/api/workspace', { headers: authHeaders() })
+      apiFetch('/api/workspace')
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((w: { ingestKey: string }) => setSensorKey(w.ingestKey))
         .catch(() => undefined)

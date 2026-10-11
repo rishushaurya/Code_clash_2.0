@@ -3,7 +3,7 @@
 
 import type { Command, FactsPack, Recommendation } from '@/shared/types'
 import { getSite, type SetupDraft } from '@/shared/site'
-import { authHeaders, online } from '@/shared/workspace'
+import { apiFetch, online } from '@/shared/workspace'
 import { templateRecommendation } from './templates'
 
 const cache = new Map<string, Recommendation>()
@@ -13,9 +13,9 @@ let aiOff = false
 async function post<T>(path: string, body: unknown): Promise<T> {
   // A workspace kept on this device has no server session: the templates answer instead.
   if (!online()) throw new Error('offline workspace')
-  const headers: Record<string, string> = { 'content-type': 'application/json', ...authHeaders() }
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (aiOff && path.startsWith('/api/ai/')) throw new Error('AI not configured')
-  const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) })
+  const res = await apiFetch(path, { method: 'POST', headers, body: JSON.stringify(body) })
   if (res.status === 503 && path.startsWith('/api/ai/')) aiOff = true
   if (!res.ok) throw new Error(`${path} ${res.status}`)
   return res.json() as Promise<T>
@@ -62,7 +62,7 @@ export interface SurveyItem {
 /** AI Surveyor: a ceiling photo becomes a device list. Throws 'not-configured' when no AI key is set. */
 export async function surveyRoom(roomId: string, image: string): Promise<SurveyItem[]> {
   if (!online()) throw new Error('not-configured')
-  const res = await fetch('/api/ai/surveyor', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ roomId, image }) })
+  const res = await apiFetch('/api/ai/surveyor', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId, image }) })
   if (res.status === 503) throw new Error('not-configured')
   if (!res.ok) throw new Error(`surveyor ${res.status}`)
   return ((await res.json()) as { items: SurveyItem[] }).items
@@ -78,7 +78,7 @@ export interface AuditTrail {
 export async function auditTrail(days = 30): Promise<AuditTrail | null> {
   if (!online()) return null
   try {
-    const res = await fetch(`/api/events?days=${days}`, { headers: authHeaders() })
+    const res = await apiFetch(`/api/events?days=${days}`)
     return res.ok ? ((await res.json()) as AuditTrail) : null
   } catch {
     return null
@@ -126,9 +126,9 @@ export async function setupFromText(text: string): Promise<{ draft: SetupDraft; 
 /** Writes recorded speech down on the server (Groq Whisper); `lang` is en, hi or kn */
 export async function transcribe(audio: Blob, lang: string): Promise<string> {
   if (!online()) throw new Error('offline workspace')
-  const res = await fetch(`/api/ai/transcribe?lang=${encodeURIComponent(lang)}`, {
+  const res = await apiFetch(`/api/ai/transcribe?lang=${encodeURIComponent(lang)}`, {
     method: 'POST',
-    headers: { 'content-type': audio.type || 'audio/webm', ...authHeaders() },
+    headers: { 'content-type': audio.type || 'audio/webm' },
     body: audio,
   })
   if (!res.ok) throw new Error(`transcribe ${res.status}`)

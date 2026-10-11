@@ -149,4 +149,4 @@ Open `http://localhost:5173`. Without Supabase keys, the first page keeps the wo
 | Phone camera asks for permission every time | Use the `https://` address; browsers remember camera permission only on secure sites. |
 | AI cards say they came from a template | No AI key, the provider's free quota is used up for now, or the AI's answer failed the number check; the template is the safe fallback. |
 | Telegram stays quiet | The webhook was not registered, the chat id is not saved in Setup, or the bot is not in the group. |
-| "Sign in to your workspace again" | Sessions last 30 days, and changing `WORKSPACE_SECRET` ends all of them: sign in again. |
+| "Your session has ended" on the sign-in page | Sessions last 30 days, and changing `WORKSPACE_SECRET` ends all of them. The app signs the device out and says so; open the workspace again with its name and password. Nothing saved is lost. |

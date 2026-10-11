@@ -1,26 +1,57 @@
 // POST /api/ai/report  { facts }  ->  { title, sections: [{ heading, paragraphs, bullets }] }
 // Facts are a week of twin and simulation numbers prepared in the browser by reportFacts() in src/ai/tools.ts.
+// One AI call, read leniently (extra paragraphs are trimmed, not fatal). Then every sentence or bullet that
+// quotes a figure missing from the facts is removed, so the AI never adds a number, and the rest of the
+// report survives one bad sentence. Too little left means the browser writes the report from templates.
 
 import { z } from 'zod'
 import { ALWAYS_ALLOWED, ungroundedFigures } from '../../_lib/grounding.js'
 import { json, logJson, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
 import { aiConfigured, chatJson } from '../../_lib/llm.js'
 
+const text = (max: number) => z.unknown().optional().transform((v) => (typeof v === 'string' ? v.trim().slice(0, max) : ''))
+const texts = (max: number, count: number) =>
+  z
+    .unknown()
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, max)).filter(Boolean).slice(0, count) : []))
 const Out = z.object({
-  title: z.string().max(120),
+  title: text(120),
   sections: z
-    .array(z.object({ heading: z.string().max(80), paragraphs: z.array(z.string().max(1200)).max(4), bullets: z.array(z.string().max(300)).max(10) }))
-    .min(5)
-    .max(12),
+    .unknown()
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v.slice(0, 12) : []))
+    .pipe(z.array(z.object({ heading: text(80), paragraphs: texts(1200, 4), bullets: texts(300, 10) }).nullable().catch(null))),
 })
+type Draft = z.infer<typeof Out>
 
 const SYSTEM = `You write energy-audit reports for buildings, in the structure accreditation and audit evidence uses (for example NAAC criterion 7.1.6 in India, or an ASHRAE Level 1 walk-through).
 Write these sections in order: Summary; Building profile; Baseline consumption; Waste hotspots; When waste happens (from the observed patterns); Space utilization; Indoor air quality; Recommendations with cost-benefit; Actions taken (include the stored action log when present); Rooftop solar (only when the facts include it); Method and assumptions.
 Rules:
-- Use only figures that appear in the facts JSON. Never invent, add up or estimate a number. Quote ranges exactly as given (p10 to p90).
+- Use only figures that appear in the facts JSON, written exactly as they appear there. Never invent, add up, subtract or estimate a number. Quote ranges exactly as given (p10 to p90).
 - Money in the currency given in facts.currency, with its usual symbol. Rooms by id. Say clearly which figures are modelled and which were measured by cameras, sensors or staff.
-- Plain, formal English. No emojis. No markdown symbols inside strings.
+- At most 4 short paragraphs and 10 bullets per section. Plain, formal English. No emojis. No markdown symbols inside strings.
 - Reply with JSON only: {"title", "sections": [{"heading", "paragraphs": [..], "bullets": [..]}]}.`
+
+/** Keeps only sentences and bullets whose figures are all in the facts; drops sections left empty */
+export function keepGrounded(draft: Draft, facts: unknown) {
+  let removed = 0
+  const grounded = (t: string) => {
+    if (!ungroundedFigures(t, facts, ALWAYS_ALLOWED).length) return true
+    removed++
+    return false
+  }
+  // Sentences end at . ! or ? followed by a space, so "8.73" stays whole.
+  const sentences = (p: string) => p.split(/(?<=[.!?])\s+/).filter(grounded).join(' ')
+  const sections = draft.sections.flatMap((s) => {
+    if (!s?.heading) return []
+    const paragraphs = s.paragraphs.map(sentences).filter(Boolean)
+    const bullets = s.bullets.filter(grounded)
+    return paragraphs.length || bullets.length ? [{ heading: s.heading, paragraphs, bullets }] : []
+  })
+  const title = draft.title && grounded(draft.title) ? draft.title : 'Energy and sustainability report'
+  return { title, sections, removed }
+}
 
 export async function POST(req: Request) {
   const id = requireWorkspace(req)
@@ -31,11 +62,10 @@ export async function POST(req: Request) {
   const body = await readBody(req, z.object({ facts: z.record(z.string(), z.unknown()) }), 60_000)
   if (body instanceof Response) return body
   try {
-    const out = await chatJson(SYSTEM, JSON.stringify(body.facts), Out, (o) => {
-      const text = o.sections.flatMap((s) => [s.heading, ...s.paragraphs, ...s.bullets]).join(' ')
-      return ungroundedFigures(text, body.facts, ALWAYS_ALLOWED).map((f) => `"${f}" is not in the facts`)
-    })
-    return json(out)
+    const { title, sections, removed } = keepGrounded(await chatJson(SYSTEM, JSON.stringify(body.facts), Out), body.facts)
+    if (removed) logJson('info', 'report sentences removed', { workspace: id, removed })
+    if (sections.length < 4) return json({ error: 'AI report too thin' }, 502)
+    return json({ title, sections })
   } catch (e) {
     logJson('warn', 'report failed', { error: String(e).slice(0, 300) })
     return json({ error: 'AI unavailable' }, 502)

@@ -104,7 +104,8 @@ export function normalize(raw: RawDraft, said: string): SetupDraft {
   const floors = raw.floors.flatMap((f) => {
     if (!f) return []
     const level = int(f.level, -5, 200) ?? 0
-    return [{ level, name: f.name ?? (level === 0 ? 'Ground floor' : `Floor ${level}`), building: f.building }]
+    const name = !f.name || (level === 0 && /^(floor|level)\s*0$/i.test(f.name)) ? (level === 0 ? 'Ground floor' : `Floor ${level}`) : f.name
+    return [{ level, name, building: f.building }]
   })
   const used = new Set<string>()
   const rooms = raw.rooms.flatMap((r, i) => {

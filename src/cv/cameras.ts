@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import { zonesOf } from '@/shared/site'
 import type { CameraConfig, CameraZone, CvReading, Room } from '@/shared/types'
-import { authHeaders, ns, online } from '@/shared/workspace'
+import { apiFetch, ns, online } from '@/shared/workspace'
 import { on, send } from '@/twin/realtime'
 
 const KEY = ns('pratibimb:cameras')
@@ -51,7 +51,7 @@ export function saveCamera(id: string, config: CameraConfig | null) {
     id,
     setTimeout(() => {
       pending.delete(id)
-      void fetch('/api/cameras', { method: 'PUT', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ id, config }) }).catch(() => undefined)
+      void apiFetch('/api/cameras', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, config }) }).catch(() => undefined)
     }, 1200),
   )
 }
@@ -60,7 +60,7 @@ export function saveCamera(id: string, config: CameraConfig | null) {
 export async function syncCameras() {
   if (!online()) return
   try {
-    const res = await fetch('/api/cameras', { headers: authHeaders() })
+    const res = await apiFetch('/api/cameras')
     if (!res.ok) return
     const { cameras } = (await res.json()) as { cameras: Record<string, CameraConfig> }
     const mine = useCameras.getState().cameras

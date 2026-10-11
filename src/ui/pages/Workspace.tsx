@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { localWorkspace, readJoinLink, signIn, workspaceIdOf, type Session } from '@/shared/workspace'
+import { localWorkspace, readJoinLink, signIn, takeSignedOutReason, workspaceIdOf, type Session } from '@/shared/workspace'
 
 export function WorkspaceGate() {
   const [mode, setMode] = useState<'open' | 'create'>('open')
@@ -16,6 +16,7 @@ export function WorkspaceGate() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [reason] = useState(takeSignedOutReason)
   const id = workspaceIdOf(name)
 
   async function submit(e: React.FormEvent) {
@@ -79,6 +80,11 @@ export function WorkspaceGate() {
             <CardDescription>{mode === 'open' ? 'Enter the name and password your team uses.' : 'Pick a name for your building or team, and a password to share with your team.'}</CardDescription>
           </CardHeader>
           <CardContent>
+            {reason && (
+              <p role="status" className="mb-4 rounded-md border border-warn/50 bg-warn/10 p-2 text-sm text-warn">
+                {reason}
+              </p>
+            )}
             <form className="space-y-4" onSubmit={submit}>
               <div className="space-y-1">
                 <Label htmlFor="ws-name">Workspace name</Label>

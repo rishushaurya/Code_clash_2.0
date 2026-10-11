@@ -7,7 +7,7 @@ import { wasteOverPeriod } from './energy'
 import { mergeReadings } from './merge'
 
 // A signed-in server workspace, so the site sync talks to the (mocked) server.
-vi.mock('@/shared/workspace', async (original) => ({ ...(await original<typeof import('@/shared/workspace')>()), online: () => true, authHeaders: () => ({ authorization: 'Bearer t' }) }))
+vi.mock('@/shared/workspace', async (original) => ({ ...(await original<typeof import('@/shared/workspace')>()), online: () => true, apiFetch: (path: string, init: RequestInit = {}) => fetch(path, { ...init, headers: { ...(init.headers as Record<string, string>), authorization: 'Bearer t' } }) }))
 
 loadTestSite()
 
@@ -136,7 +136,7 @@ describe('set up with AI', () => {
     const mr = site.rooms.find((r) => r.id === 'MR-1')!
     expect(mr.devices.map((d) => d.type)).toEqual(Array(6).fill('light'))
     expect(site.floors.map((f) => f.level)).toEqual([0, 1, 3])
-    expect(assumed).toEqual(['MR-1 seats (12, from the meeting room template)', 'MR-1 area (25 m², from the template)'])
+    expect(assumed).toEqual(['seats for MR-1 (12, meeting room template)', 'area for MR-1 (25 m², meeting room template)'])
   })
 })
 

@@ -2,6 +2,46 @@
 
 Newest entry first. Every session, human or AI, adds one entry.
 
+## Session 27 · Live-site test pass and fixes · Claude Opus 5.5
+
+**Tested:** the live site's whole API with a temporary workspace, with 24 of 25 checks passing:
+- workspace create, open, wrong password, taken name;
+- site, cameras, events, sensor ingest, commands, visitor tips, Telegram without a chat, digest, forged token;
+- AI recommendation, Copilot, report, Set up with AI on the team's home text, voice.
+
+Every screen was then tested on localhost against the same Supabase and AI. Browser sign-in on the public site was not automated, because the assistant may not type passwords on a public site.
+
+**Found and fixed:**
+1. **A dead session left the app stuck** ("Your session has ended" in every AI action).
+   - Every signed-in call now goes through `apiFetch` (`src/shared/workspace.ts`).
+   - A 401 signs the device out, and the sign-in page says why; unsaved drafts stay.
+   - The session is checked at start through the site sync.
+2. **The AI Surveyor failed, and Gemini Flash is often overloaded (503).** Gemini now falls back to `gemini-flash-lite-latest`, with a 15 s limit per try.
+3. **The AI report always fell back to the template.** The model wrote more paragraphs than allowed, and added up figures. The report is now read leniently, and only sentences with figures not in the facts are removed: one AI call, about 6 s, all sections.
+4. **The Reports page named a building ("A Block").** It now says "your rooms".
+5. **The Set up with AI review repeated template values per room.** Now one line per template.
+6. **The Copilot spoke of "the simulation" when no room was watched.** The tool now reports watched rooms, and the answer asks for a camera first.
+7. **The AI's "Floor 0" name.** It reads as "Ground floor".
+
+**Checks:**
+- 89 tests pass; `npx tsc -b`, `npm run build` and lint pass.
+- On localhost with the live services:
+  - the AI report was written by the AI in 6 s;
+  - the Copilot answered correctly with no watched rooms;
+  - a forged session signed the device out with the reason shown;
+  - the Surveyor answered in 5 s through the fallback;
+  - the review note was grouped.
+- All test workspaces were deleted from Supabase.
+
+**Known issues:**
+- Telegram is not configured on the live site (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` and a chat id in Setup).
+- Camera capture cannot be tested in the assistant's browser pane.
+
+**Next:**
+- Push.
+- Sign in again on the live site (old sessions end).
+- Try Set up with AI, Speak, the report and the Copilot there.
+
 ## Session 26 · AI routes reach the server on Vercel; voice in every browser · Claude Opus 5.5
 
 **What:**

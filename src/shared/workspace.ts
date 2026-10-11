@@ -57,6 +57,38 @@ export const ns = (key: string) => `${key}:${SESSION?.id ?? 'none'}`
 
 export const authHeaders = (): Record<string, string> => (online() ? { authorization: `Bearer ${SESSION!.token}` } : {})
 
+const SIGNED_OUT_KEY = 'pratibimb:signed-out'
+
+/**
+ * Every call to the workspace's own API goes through here: it adds the session, and when the server no longer
+ * accepts it (expired after 30 days, or WORKSPACE_SECRET changed) it signs this device out with the reason,
+ * instead of leaving each screen to fail on its own. Unsaved setup drafts stay on the device.
+ */
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const res = await fetch(path, { ...init, headers: { ...(init.headers as Record<string, string>), ...authHeaders() } })
+  if (res.status === 401 && online()) {
+    try {
+      sessionStorage.setItem(SIGNED_OUT_KEY, 'Your session has ended. Open the workspace again with its name and password; nothing you saved is lost.')
+    } catch {
+      // The sign-in page then shows no reason.
+    }
+    localStorage.removeItem(SESSION_KEY)
+    location.assign('/')
+  }
+  return res
+}
+
+/** The reason this device was signed out, shown once on the sign-in page */
+export function takeSignedOutReason() {
+  try {
+    const reason = sessionStorage.getItem(SIGNED_OUT_KEY)
+    sessionStorage.removeItem(SIGNED_OUT_KEY)
+    return reason
+  } catch {
+    return null
+  }
+}
+
 export function signIn(session: Session, next = '/') {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   location.assign(next)

@@ -203,6 +203,36 @@ describe('/api/ai/setup', () => {
   })
 })
 
+describe('/api/ai/report', () => {
+  it('keeps the report but removes each sentence or bullet with a figure not in the facts', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'k')
+    const reportFacts = { building: 'Main Block', currency: 'INR', weekKwh: 29, saving: { p10: 211, p90: 296 } }
+    const section = (heading: string, paragraphs: string[], bullets: string[] = []) => ({ heading, paragraphs, bullets })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        llmReply({
+          title: 'Main Block energy report',
+          sections: [
+            section('Summary', ['The building used 29 kWh in the modelled week. Together that is 920 kWh a year.', 'p1', 'p2', 'p3', 'p4', 'p5']),
+            section('Baseline', ['A week is 29 kWh.'], ['Saving ₹211 to ₹296 a month', 'Saving ₹138 a week']),
+            section('Waste', ['No room was watched yet.']),
+            section('Method', ['Modelled with the site settings.']),
+            section('Invented', ['It wastes 500 W.']),
+            'not a section',
+          ],
+        }),
+      ),
+    )
+    const res = await call('ai/report', { facts: reportFacts }, auth())
+    const out = await res.json()
+    expect(res.status).toBe(200)
+    expect(out.sections.map((x: { heading: string }) => x.heading)).toEqual(['Summary', 'Baseline', 'Waste', 'Method'])
+    expect(out.sections[0].paragraphs).toEqual(['The building used 29 kWh in the modelled week.', 'p1', 'p2', 'p3'])
+    expect(out.sections[1].bullets).toEqual(['Saving ₹211 to ₹296 a month'])
+  })
+})
+
 describe('/api/ai/transcribe', () => {
   it('passes recorded audio to Whisper with the language and returns only the text', async () => {
     vi.stubEnv('GROQ_API_KEY', 'k')

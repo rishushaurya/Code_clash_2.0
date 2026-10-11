@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { create } from 'zustand'
 import { WATTS } from './config'
 import type { DeviceType, Room, RoomType, Site } from './types'
-import { authHeaders, ns, online } from './workspace'
+import { apiFetch, ns, online } from './workspace'
 
 const STORAGE_KEY = ns('pratibimb:site')
 
@@ -221,7 +221,7 @@ export async function syncSiteFromServer() {
   if (!online()) return
   try {
     if (localStorage.getItem(UNSYNCED_KEY)) return void (await pushSite(getSite()))
-    const res = await fetch('/api/site', { headers: authHeaders() })
+    const res = await apiFetch('/api/site')
     if (!res.ok) return
     const { site } = (await res.json()) as { site: unknown }
     const parsed = SiteSchema.safeParse(site)
@@ -235,7 +235,7 @@ export async function syncSiteFromServer() {
 export async function pushSite(site: Site): Promise<'server' | 'device'> {
   if (!online()) return 'device'
   try {
-    const res = await fetch('/api/site', { method: 'PUT', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify(site) })
+    const res = await apiFetch('/api/site', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(site) })
     if (res.ok) {
       localStorage.removeItem(UNSYNCED_KEY)
       return 'server'
@@ -284,7 +284,13 @@ const CEILING_M = 3.2
  * room template and are listed in `assumed`, so the person checks them before saving.
  */
 export function applySetupDraft(site: Site, d: SetupDraft): { site: Site; assumed: string[] } {
-  const assumed: string[] = []
+  /** Rooms that took seats or area from a template, grouped by template */
+  const fromTemplate = new Map<RoomType, { seats: string[]; area: string[] }>()
+  const note = (type: RoomType, field: 'seats' | 'area', id: string) => {
+    const g = fromTemplate.get(type) ?? { seats: [], area: [] }
+    g[field].push(id)
+    fromTemplate.set(type, g)
+  }
   const next: Site = { ...site, floors: [...site.floors], rooms: [...site.rooms] }
   if (d.organization) next.organization = d.organization.slice(0, 80)
   if (d.buildingName) next.buildingName = d.buildingName.slice(0, 80)
@@ -308,8 +314,8 @@ export function applySetupDraft(site: Site, d: SetupDraft): { site: Site; assume
     const ratings = old ? Object.fromEntries(old.devices.map((x) => [x.type, x.ratedW])) : {}
     const fresh = makeDevices(r.id, counts, ratings)
     const devices = old ? fresh.map((x) => old.devices.find((o) => o.id === x.id) ?? x) : fresh
-    if (!old && r.capacity == null) assumed.push(`${r.id} seats (${t.capacity}, from the ${t.label.toLowerCase()} template)`)
-    if (!old && r.areaM2 == null) assumed.push(`${r.id} area (${t.areaM2} m², from the template)`)
+    if (!old && r.capacity == null) note(r.type, 'seats', r.id)
+    if (!old && r.areaM2 == null) note(r.type, 'area', r.id)
     const areaM2 = r.areaM2 ?? old?.areaM2 ?? t.areaM2
     const room: Room = {
       ...(old ?? { windowSide: true, polygon: undefined }),
@@ -327,5 +333,13 @@ export function applySetupDraft(site: Site, d: SetupDraft): { site: Site; assume
     else next.rooms.push(room)
   }
   next.floors.sort((a, b) => a.level - b.level)
+  const assumed = [...fromTemplate].flatMap(([type, g]) => {
+    const t = ROOM_TEMPLATES[type]
+    const each = (ids: string[]) => (ids.length > 1 ? ' each' : '')
+    return [
+      ...(g.seats.length ? [`seats for ${g.seats.join(', ')} (${t.capacity}${each(g.seats)}, ${t.label.toLowerCase()} template)`] : []),
+      ...(g.area.length ? [`area for ${g.area.join(', ')} (${t.areaM2} m²${each(g.area)}, ${t.label.toLowerCase()} template)`] : []),
+    ]
+  })
   return { site: next, assumed }
 }

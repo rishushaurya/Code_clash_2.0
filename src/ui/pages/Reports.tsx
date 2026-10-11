@@ -60,7 +60,7 @@ export default function Reports() {
           <CardContent>
             <EmptyState icon={FileText} title="No report yet">
               <p className="max-w-md text-sm">
-                The report uses this session's live record and a simulated week of A Block. The AI writes the words; every number comes from the twin.
+                The report uses this session's live record and a modelled week of your rooms. The AI writes the words; every number comes from the twin.
               </p>
             </EmptyState>
           </CardContent>

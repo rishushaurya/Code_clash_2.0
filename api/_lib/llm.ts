@@ -23,14 +23,15 @@ const providers = (vision = false): Provider[] => {
     key: process.env.GROQ_API_KEY,
     model: (vision ? process.env.GROQ_VISION_MODEL : process.env.GROQ_MODEL) || 'openai/gpt-oss-120b',
   }
-  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest'
-  const gemini: Provider = {
+  // Google's Flash model is often "experiencing high demand" (503); Flash-Lite then answers in about a second.
+  const models = [...new Set([process.env.GEMINI_MODEL?.trim() || 'gemini-flash-latest', 'gemini-flash-lite-latest'])]
+  const gemini: Provider[] = models.map((model) => ({
     name: 'gemini',
     url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     key: process.env.GEMINI_API_KEY,
     model,
-  }
-  return vision ? [gemini, ...(process.env.GROQ_VISION_MODEL ? [groq] : [])] : [groq, gemini]
+  }))
+  return vision ? [...gemini, ...(process.env.GROQ_VISION_MODEL ? [groq] : [])] : [groq, ...gemini]
 }
 
 export const aiConfigured = () => providers().some((p) => p.key)
@@ -55,7 +56,8 @@ async function callGemini(p: Provider, messages: Message[]) {
         .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: typeof m.content === 'string' ? [{ text: m.content }] : m.content.map(part) })),
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
     }),
-    signal: AbortSignal.timeout(20000),
+    // Short enough that an overloaded model leaves time for the next one.
+    signal: AbortSignal.timeout(15000),
   })
   if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }

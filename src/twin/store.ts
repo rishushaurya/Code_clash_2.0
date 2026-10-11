@@ -9,7 +9,7 @@ import { setRelay } from '@/relay/webSerial'
 import { AI_COOLDOWN_S, CO2_OUTDOOR_PPM, DEFAULT_RUNS, SENSOR_FRESH_MS, TICK_MS, VERIFY_WINDOW_MS, WASTE_MIN_W } from '@/shared/config'
 import { getRoom, getSite, syncSiteFromServer, useSite } from '@/shared/site'
 import { every } from '@/shared/timer'
-import { authHeaders, online } from '@/shared/workspace'
+import { apiFetch, online } from '@/shared/workspace'
 import type {
   Alert,
   Command,
@@ -164,7 +164,7 @@ export const useTwin = create<TwinState>((set, get) => {
     if (!online() || !unsent.length) return
     const batch = unsent.slice(0, 200)
     try {
-      const res = await fetch('/api/events', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ events: batch }) })
+      const res = await apiFetch('/api/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ events: batch }) })
       if (res.ok) unsent = unsent.slice(batch.length)
     } catch {
       // Offline: try again next round.

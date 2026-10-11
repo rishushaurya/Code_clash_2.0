@@ -40,7 +40,11 @@ export function runTool(t: CopilotTool) {
     return { ...scenarioFacts(c), emptyMinutes: t.policy === 'auto_off' || t.policy === 'combined' ? (t.emptyMinutes ?? 5) : undefined }
   }
   if (t.tool === 'topWasters') {
+    const all = Object.values(s.rooms)
     return {
+      /** Rooms a camera, sensor or staff report feeds right now; the others cannot be judged */
+      watchedRooms: all.filter((x) => x.sources.length).length,
+      rooms: all.length,
       wastingRooms: Object.values(s.rooms)
         .filter((x) => x.status === 'waste')
         .sort((a, b) => b.watts - a.watts)
@@ -81,7 +85,8 @@ export function templateAnswer(t: CopilotTool, result: ReturnType<typeof runTool
   }
   if (t.tool === 'topWasters') {
     const list = x.wastingRooms as { roomId: string; watts: number }[]
-    return list.length ? `Right now ${list.map((w) => `${w.roomId} wastes ${w.watts} W`).join(', ')}.` : 'No room is wasting power right now.'
+    if (!x.watchedRooms) return 'No room has a camera or sensor yet, so none can be judged. Add a camera on the Cameras page, or report what you see on a room page.'
+    return list.length ? `Right now ${list.map((w) => `${w.roomId} wastes ${w.watts} W`).join(', ')}.` : `None of the ${x.watchedRooms} watched rooms is wasting power right now.`
   }
   if (t.tool === 'patterns') return templatePatterns(wastePatterns()) || 'No pattern yet: cameras or sensors need to watch empty rooms for a while first.'
   if (t.tool === 'getRoom' && !x.error) return x.occupancyKnown ? `${x.roomId} is ${x.status} with ${x.people} people, drawing ${x.watts} W.` : `${x.roomId} has no live occupancy input yet; it draws ${x.watts} W from what is observed.`
