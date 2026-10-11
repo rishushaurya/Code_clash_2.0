@@ -1,10 +1,11 @@
-// One function for both AI providers. Groq and Gemini both speak the OpenAI chat format,
-// so a plain fetch covers them: Groq first (fast on stage), Gemini when Groq fails or rate-limits.
+// One function for both AI providers, each with a plain fetch: Groq through its OpenAI-compatible API,
+// Gemini through its own generateContent API with the x-goog-api-key header, which accepts both the
+// older AIza keys and the AQ. keys AI Studio issues now. Groq first (fast), Gemini when Groq fails.
 
 import type { z } from 'zod'
 
 interface Provider {
-  name: string
+  name: 'groq' | 'gemini'
   url: string
   key?: string
   model: string
@@ -12,17 +13,18 @@ interface Provider {
 
 /** Text calls go to Groq first (fast on stage). Image calls go to Gemini first: it is trained to return boxes. */
 const providers = (vision = false): Provider[] => {
-  const groq = {
+  const groq: Provider = {
     name: 'groq',
     url: 'https://api.groq.com/openai/v1/chat/completions',
     key: process.env.GROQ_API_KEY,
     model: vision ? process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct' : process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
   }
-  const gemini = {
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const gemini: Provider = {
     name: 'gemini',
-    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     key: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    model,
   }
   return vision ? [gemini, groq] : [groq, gemini]
 }
@@ -32,7 +34,32 @@ export const aiConfigured = () => providers().some((p) => p.key)
 type Part = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
 type Message = { role: 'system' | 'user' | 'assistant'; content: string | Part[] }
 
+/** Gemini's own format: a system instruction, user and model turns, images inline */
+async function callGemini(p: Provider, messages: Message[]) {
+  const part = (c: Part) => {
+    if (c.type === 'text') return { text: c.text }
+    const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(c.image_url.url) ?? []
+    return { inlineData: { mimeType, data } }
+  }
+  const res = await fetch(p.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': p.key! },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: messages.find((m) => m.role === 'system')?.content ?? '' }] },
+      contents: messages
+        .filter((m) => m.role !== 'system')
+        .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: typeof m.content === 'string' ? [{ text: m.content }] : m.content.map(part) })),
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
+    }),
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+  return data.candidates?.[0]?.content?.parts?.map((x) => x.text ?? '').join('') ?? ''
+}
+
 async function call(p: Provider, messages: Message[]) {
+  if (p.name === 'gemini') return callGemini(p, messages)
   const res = await fetch(p.url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${p.key}` },

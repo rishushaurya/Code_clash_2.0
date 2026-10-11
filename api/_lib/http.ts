@@ -3,6 +3,7 @@
 import { createHmac } from 'node:crypto'
 import type { z } from 'zod'
 import { authConfigured, channels, readToken, same } from './auth.js'
+import { supabase } from './db.js'
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
@@ -40,12 +41,6 @@ export function rateLimit(req: Request, perMinute = 30): Response | null {
   if (!h || now - h.start > 60_000) hits.set(ip, { start: now, count: 1 })
   else if (++h.count > perMinute) return new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429, headers: { 'retry-after': '60' } })
   return null
-}
-
-const supabase = () => {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  return url && key ? { url, headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' } } : null
 }
 
 /** Broadcast on a workspace's private twin channel through Supabase's REST endpoint: no websocket needed in a function. */

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "oxlint",
-    "postinstall": "node scripts/copy-mediapipe.mjs"
+    "postinstall": "node scripts/copy-mediapipe.mjs",
+    "check:keys": "node scripts/check-keys.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.1.0",

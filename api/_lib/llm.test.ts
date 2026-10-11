@@ -29,10 +29,24 @@ describe('chatJson', () => {
   it('falls back to Gemini when Groq fails', async () => {
     vi.stubEnv('GROQ_API_KEY', 'test')
     vi.stubEnv('GEMINI_API_KEY', 'test')
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('rate limited', { status: 429 })).mockResolvedValueOnce(reply({ text: 'ok' }))
+    const gemini = new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ text: 'ok' }) }] } }] }))
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('rate limited', { status: 429 })).mockResolvedValueOnce(gemini)
     vi.stubGlobal('fetch', fetchMock)
 
     expect(await chatJson('s', 'u', z.object({ text: z.string() }))).toEqual({ text: 'ok' })
-    expect(fetchMock.mock.calls[1][0]).toContain('generativelanguage.googleapis.com')
+    const [url, init] = fetchMock.mock.calls[1]
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent')
+    // Gemini's own API key header, which takes both AIza and AQ. keys; never a Bearer token.
+    expect(init.headers).toEqual({ 'content-type': 'application/json', 'x-goog-api-key': 'test' })
+    expect(JSON.parse(init.body)).toMatchObject({ systemInstruction: { parts: [{ text: 's' }] }, contents: [{ role: 'user', parts: [{ text: 'u' }] }], generationConfig: { responseMimeType: 'application/json' } })
+  })
+
+  it('sends new Supabase secret keys in apikey only, and legacy JWT keys in both headers', async () => {
+    const { supabase } = await import('./db.js')
+    vi.stubEnv('SUPABASE_URL', 'https://abc.supabase.co/')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'sb_secret_xyz')
+    expect(supabase()).toEqual({ url: 'https://abc.supabase.co', headers: { apikey: 'sb_secret_xyz', 'content-type': 'application/json' } })
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'eyJhbGciOi.legacy.jwt')
+    expect(supabase()?.headers.authorization).toBe('Bearer eyJhbGciOi.legacy.jwt')
   })
 })

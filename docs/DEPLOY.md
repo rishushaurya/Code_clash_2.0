@@ -17,12 +17,12 @@ When Pratibimb is sold to customers, move Vercel to Pro (commercial use) or anot
 
 | Key | Where it comes from | What it unlocks |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | Supabase, Project Settings, API, Project URL | Live channel (phones, cameras, sensors over the internet) |
-| `VITE_SUPABASE_ANON_KEY` | Supabase, Project Settings, API, `anon` `public` key | Same; it is public by design and can read or write no table |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase, Project Settings, API, `service_role` key | Server storage: workspaces, sites, cameras, events. **Secret.** |
+| `VITE_SUPABASE_URL` | Supabase, Project Settings, **Data API**, Project URL (or the **Connect** button at the top of the project), `https://<project-ref>.supabase.co` | Live channel (phones, cameras, sensors over the internet) |
+| `VITE_SUPABASE_ANON_KEY` | Supabase, Project Settings, **API Keys**, Publishable key (`sb_publishable_...`); a legacy `anon` key also works | Same; it is public by design and can read or write no table |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase, Project Settings, **API Keys**, Secret key (`sb_secret_...`, press the eye to reveal it); a legacy `service_role` key also works | Server storage: workspaces, sites, cameras, events. **Secret.** |
 | `WORKSPACE_SECRET` | You generate it (step 3) | Signs workspace sessions; derives channel names and sensor keys. **Secret.** |
 | `GROQ_API_KEY` | console.groq.com, API Keys | AI recommendations, reports, Copilot, Set up with AI |
-| `GEMINI_API_KEY` | aistudio.google.com, Get API key | AI fallback and the AI Surveyor (photo to device list) |
+| `GEMINI_API_KEY` | aistudio.google.com, Get API key, then **Copy key** (it starts with `AQ.` or `AIza`) | AI fallback and the AI Surveyor (photo to device list) |
 | `TELEGRAM_BOT_TOKEN` | Telegram, @BotFather, /newbot | Alerts and the weekly digest |
 | `TELEGRAM_WEBHOOK_SECRET` | You generate it | Lets only Telegram call `/api/telegram` |
 | `CRON_SECRET` | You generate it | Lets only Vercel Cron call `/api/digest` |
@@ -74,7 +74,7 @@ Changing `WORKSPACE_SECRET` later signs everyone out and changes every sensor ke
 
 1. supabase.com, New project. Pick the region closest to your buildings and a strong database password.
 2. SQL Editor, New query, paste all of [`supabase/schema.sql`](../supabase/schema.sql), Run. It creates `workspaces`, `sites` and `events`, all with row-level security on and no public access.
-3. Project Settings, API: copy the Project URL, the `anon` key and the `service_role` key.
+3. Project Settings, Data API: copy the Project URL. Project Settings, API Keys: copy the publishable key and the secret key (press the eye icon, then copy). The legacy `anon` and `service_role` keys also work, but Supabase is retiring them.
 
 ## 5. AI keys
 
@@ -89,6 +89,8 @@ One is enough; with both, Pratibimb uses Groq first and Gemini when Groq is busy
 2. Before the first deploy, open Environment Variables and add every key from section 1 that you have, for Production and Preview. `VITE_` keys are built into the page, so after changing one, redeploy.
 3. Deploy. The address looks like `https://<project>.vercel.app`.
 4. Check `https://<project>.vercel.app/api/health`: it should say `"status":"ok"` with `"storage":"ok"`.
+
+Before deploying, you can test every key from your computer: put them in `.env` (copy `.env.example`) and run `npm run check:keys`. It prints pass or fail for each service and never prints a key.
 
 `vercel.json` already sets the security headers and the weekly digest (Mondays). The whole API is one function, `api/[...route].ts`, so the Hobby limit of 12 functions is never reached.
 

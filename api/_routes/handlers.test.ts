@@ -13,6 +13,7 @@ const auth = (id = 'acme') => ({ authorization: `Bearer ${signToken(id)}` })
 const call = (path: string, body?: unknown, headers: Record<string, string> = {}, method = body === undefined ? 'GET' : 'POST') =>
   route(new Request(`http://localhost/api/${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) }))
 const llmReply = (content: object) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }))
+const geminiReply = (content: object) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(content) }] } }] }))
 const withStorage = () => {
   vi.stubEnv('SUPABASE_URL', 'https://example.supabase.co')
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service')
@@ -381,7 +382,7 @@ describe('/api/ai/surveyor', () => {
   it('accepts only image data URLs and clamps boxes into the frame', async () => {
     vi.stubEnv('GEMINI_API_KEY', 'k')
     expect((await call('ai/surveyor', { roomId: 'LH-1', image: 'http://evil.example/x.png' }, auth())).status).toBe(400)
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(llmReply({ items: [{ label: 'light', box: [-5, 10, 50, 1200] }] })))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(geminiReply({ items: [{ label: 'light', box: [-5, 10, 50, 1200] }] })))
     const res = await call('ai/surveyor', { roomId: 'LH-1', image: 'data:image/jpeg;base64,AAAA' }, auth())
     expect(await res.json()).toEqual({ items: [{ label: 'light', box: [0, 10, 50, 1000] }] })
   })

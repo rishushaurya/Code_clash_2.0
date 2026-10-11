@@ -1,9 +1,22 @@
 // Supabase REST access for server functions (service-role key; never sent to the browser).
 
-export function table(name: 'events' | 'sites' | 'workspaces') {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+/**
+ * Supabase's address and the server's headers. SUPABASE_SERVICE_ROLE_KEY holds either a secret key
+ * (sb_secret_...) or a legacy service_role key. Secret keys are not JWTs, so they go in `apikey` only;
+ * Supabase rejects them in Authorization. Legacy keys are JWTs and go in both.
+ */
+export function supabase() {
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.replace(/\/+$/, '')
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  return url && key ? { url: `${url}/rest/v1/${name}`, headers: { apikey: key, authorization: `Bearer ${key}`, 'content-type': 'application/json' } } : null
+  if (!url || !key) return null
+  const headers: Record<string, string> = { apikey: key, 'content-type': 'application/json' }
+  if (key.startsWith('eyJ')) headers.authorization = `Bearer ${key}`
+  return { url, headers }
+}
+
+export function table(name: 'events' | 'sites' | 'workspaces') {
+  const sb = supabase()
+  return sb ? { url: `${sb.url}/rest/v1/${name}`, headers: sb.headers } : null
 }
 
 export interface EventRow {
