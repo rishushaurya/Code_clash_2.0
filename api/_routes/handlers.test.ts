@@ -325,6 +325,35 @@ describe('/api/digest', () => {
   })
 })
 
+describe('storage settings', () => {
+  it('reads values pasted with spaces, line breaks or quotes', async () => {
+    const { supabase } = await import('../_lib/db.js')
+    vi.stubEnv('SUPABASE_URL', ' "https://abc.supabase.co/rest/v1/" \n')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'sb_secret_xyz\n')
+    expect(supabase()).toEqual({ url: 'https://abc.supabase.co', headers: { apikey: 'sb_secret_xyz', 'content-type': 'application/json' } })
+  })
+
+  it('names the public key pasted where the secret key belongs, on sign-in and on /api/health', async () => {
+    const anon = `x.${Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url')}.y`.replace(/^x/, 'eyJhbGciOiJIUzI1NiJ9')
+    vi.stubEnv('SUPABASE_URL', 'https://abc.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', anon)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('[]')))
+    const res = await call('workspace', { mode: 'open', name: 'Acme', password: 'correct horse' })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toContain('SUPABASE_SERVICE_ROLE_KEY holds the public key')
+    expect(await (await call('health')).json()).toMatchObject({ status: 'degraded', serverKey: 'anon', detail: expect.stringContaining('public key') })
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'sb_publishable_abc')
+    expect((await (await call('health')).json()).serverKey).toBe('publishable')
+  })
+
+  it('says what Supabase answered when it refuses', async () => {
+    withStorage()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"message":"Invalid API key"}', { status: 401 })))
+    const res = await call('workspace', { mode: 'create', name: 'Acme', password: 'correct horse' })
+    expect((await res.json()).error).toBe('Storage unavailable. Supabase answered 401: {"message":"Invalid API key"}')
+  })
+})
+
 describe('/api/health', () => {
   it('reports storage reachability for uptime monitors', async () => {
     vi.stubEnv('SUPABASE_URL', '')

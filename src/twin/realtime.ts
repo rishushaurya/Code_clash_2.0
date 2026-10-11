@@ -40,8 +40,8 @@ if (privateLocal) privateLocal.onmessage = (e) => dispatch(e.data.event, e.data.
 if (publicLocal && !member) publicLocal.onmessage = (e) => e.data.event === 'snapshot' && dispatch('snapshot', e.data.payload)
 
 // The project URL, also when the REST address (…/rest/v1/) was pasted instead.
-const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/(\/rest\/v1)?\/*$/, '')
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/(\/rest\/v1)?\/*$/, '')
+const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 let remotePrivate: RealtimeChannel | null = null
 let remotePublic: RealtimeChannel | null = null
 // A visitor's link names a server workspace; a member goes online only with a server workspace.

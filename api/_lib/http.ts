@@ -3,7 +3,7 @@
 import { createHmac } from 'node:crypto'
 import type { z } from 'zod'
 import { authConfigured, channels, readToken, same } from './auth.js'
-import { supabase } from './db.js'
+import { storageProblem, supabase } from './db.js'
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
@@ -69,6 +69,20 @@ export async function logEvent(workspace: string, roomId: string | null, kind: s
     headers: { ...sb.headers, prefer: 'return=minimal' },
     body: JSON.stringify({ room_id: roomId, kind, payload: { ...(payload as object), site: workspace } }),
   }).catch(() => undefined)
+}
+
+/**
+ * A failed storage call, explained on screen and in the server log: a wrong setting by name, else what
+ * Supabase answered. Supabase's error texts ("Invalid API key", a missing table) carry no secrets.
+ */
+export async function storageError(res: Response | Error | null | undefined) {
+  const detail =
+    storageProblem() ??
+    (res instanceof Response
+      ? `Supabase answered ${res.status}: ${(await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160)}`
+      : `Supabase is not reachable from the server (${res?.message ?? 'no response'}). Check VITE_SUPABASE_URL.`)
+  logJson('error', 'storage', { detail })
+  return json({ error: `Storage unavailable. ${detail}` }, 502)
 }
 
 /** Structured log line for Vercel's log viewer */

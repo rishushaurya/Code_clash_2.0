@@ -1,5 +1,36 @@
 // Supabase REST access for server functions (service-role key; never sent to the browser).
 
+/** An environment value as pasted into a dashboard: without surrounding spaces, line breaks or quotes */
+export function setting(...names: string[]) {
+  for (const name of names) {
+    const v = process.env[name]?.trim().replace(/^(["'])([\s\S]*)\1$/, '$2').trim()
+    if (v) return v
+  }
+  return undefined
+}
+
+/** What the server key is, so the public key pasted in its place is named instead of failing as "unavailable" */
+export function keyKind(key: string): 'secret' | 'service_role' | 'publishable' | 'anon' | 'unknown' {
+  if (key.startsWith('sb_secret_')) return 'secret'
+  if (key.startsWith('sb_publishable_')) return 'publishable'
+  try {
+    const role = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString()).role
+    return role === 'service_role' ? 'service_role' : role === 'anon' ? 'anon' : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** A setting that cannot work, in words a person can act on; null when the settings look right */
+export function storageProblem(): string | null {
+  const sb = supabase()
+  if (!sb) return null
+  if (!/^https:\/\/[^/\s]+$/.test(sb.url)) return 'VITE_SUPABASE_URL must be the project URL, like https://<project-ref>.supabase.co'
+  const kind = keyKind(sb.headers.apikey)
+  if (kind === 'publishable' || kind === 'anon') return 'SUPABASE_SERVICE_ROLE_KEY holds the public key. Use the secret key (sb_secret_...) or the legacy service_role key.'
+  return null
+}
+
 /**
  * Supabase's address and the server's headers. SUPABASE_SERVICE_ROLE_KEY holds either a secret key
  * (sb_secret_...) or a legacy service_role key. Secret keys are not JWTs, so they go in `apikey` only;
@@ -7,8 +38,8 @@
  */
 export function supabase() {
   // The project URL, also when the REST address (…/rest/v1/) was pasted instead.
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)?.replace(/(\/rest\/v1)?\/*$/, '')
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = setting('SUPABASE_URL', 'VITE_SUPABASE_URL')?.replace(/(\/rest\/v1)?\/*$/, '')
+  const key = setting('SUPABASE_SERVICE_ROLE_KEY')
   if (!url || !key) return null
   const headers: Record<string, string> = { apikey: key, 'content-type': 'application/json' }
   if (key.startsWith('eyJ')) headers.authorization = `Bearer ${key}`
@@ -48,15 +79,15 @@ export async function readDoc(workspace: string, doc: 'site' | 'cameras'): Promi
   return rows[0] ? { value: rows[0].site, updatedAt: rows[0].updated_at } : null
 }
 
-export async function writeDoc(workspace: string, doc: 'site' | 'cameras', value: unknown) {
+/** Saves the document; returns Supabase's response (or the network error) for the caller to judge */
+export async function writeDoc(workspace: string, doc: 'site' | 'cameras', value: unknown): Promise<Response | Error> {
   const d = table('sites')
-  if (!d) return false
-  const res = await fetch(d.url, {
+  if (!d) return new Error('Server storage is not configured')
+  return fetch(d.url, {
     method: 'POST',
     headers: { ...d.headers, prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({ id: docId(workspace, doc), site: value, updated_at: new Date().toISOString() }),
-  }).catch(() => null)
-  return Boolean(res?.ok)
+  }).catch((e: Error) => e)
 }
 
 /** The Telegram chat a workspace chose in Setup, from its stored site */

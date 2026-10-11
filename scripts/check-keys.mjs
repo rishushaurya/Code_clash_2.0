@@ -4,6 +4,9 @@
 import { existsSync } from 'node:fs'
 
 if (existsSync('.env')) process.loadEnvFile('.env')
+// A service that does not answer within 15 s counts as a failure instead of hanging the check.
+const fetchOnce = globalThis.fetch
+globalThis.fetch = (url, init = {}) => fetchOnce(url, { signal: AbortSignal.timeout(15_000), ...init })
 const env = process.env
 let failed = 0
 const say = (state, name, detail = '') => {

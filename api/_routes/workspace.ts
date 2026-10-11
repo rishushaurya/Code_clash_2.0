@@ -4,8 +4,8 @@
 
 import { z } from 'zod'
 import { authConfigured, channels, checkPassword, hashPassword, ingestKey, signToken, workspaceId } from '../_lib/auth.js'
-import { table } from '../_lib/db.js'
-import { json, logJson, rateLimit, readBody, requireWorkspace } from '../_lib/http.js'
+import { storageProblem, table } from '../_lib/db.js'
+import { json, logJson, rateLimit, readBody, requireWorkspace, storageError } from '../_lib/http.js'
 
 const Body = z.object({
   mode: z.enum(['create', 'open']),
@@ -21,6 +21,8 @@ export async function POST(req: Request) {
   const d = table('workspaces')
   // The browser falls back to a workspace kept on this device when the server cannot hold one.
   if (!d || !authConfigured()) return json({ error: 'This server has no workspace storage', local: true }, 503)
+  // A wrong setting would otherwise pass as "Name or password is wrong" (the public key reads an empty table).
+  if (storageProblem()) return storageError(null)
   const body = await readBody(req, Body, 1_000)
   if (body instanceof Response) return body
   const id = workspaceId(body.name)
@@ -31,15 +33,15 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: { ...d.headers, prefer: 'return=minimal' },
       body: JSON.stringify({ id, name: body.name, password_hash: await hashPassword(body.password) }),
-    }).catch(() => null)
-    if (res?.status === 409) return json({ error: 'That name is taken. Open it with its password, or choose another name.' }, 409)
-    if (!res?.ok) return json({ error: 'Storage unavailable' }, 502)
+    }).catch((e: Error) => e)
+    if (res instanceof Response && res.status === 409) return json({ error: 'That name is taken. Open it with its password, or choose another name.' }, 409)
+    if (!(res instanceof Response) || !res.ok) return storageError(res)
     logJson('info', 'workspace created', { id })
     return json(session(id, body.name))
   }
 
-  const res = await fetch(`${d.url}?id=eq.${id}&select=name,password_hash`, { headers: d.headers }).catch(() => null)
-  if (!res?.ok) return json({ error: 'Storage unavailable' }, 502)
+  const res = await fetch(`${d.url}?id=eq.${id}&select=name,password_hash`, { headers: d.headers }).catch((e: Error) => e)
+  if (!(res instanceof Response) || !res.ok) return storageError(res)
   const [row] = (await res.json()) as { name: string; password_hash: string }[]
   // Same answer for an unknown name and a wrong password, so names cannot be probed.
   if (!row || !(await checkPassword(body.password, row.password_hash))) return json({ error: 'Name or password is wrong' }, 401)

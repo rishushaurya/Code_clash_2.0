@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import { readDoc, writeDoc } from '../_lib/db.js'
-import { json, readBody, requireWorkspace } from '../_lib/http.js'
+import { json, readBody, requireWorkspace, storageError } from '../_lib/http.js'
 
 const unit = z.number().min(0).max(1)
 export const CameraConfigSchema = z.object({
@@ -48,5 +48,6 @@ export async function PUT(req: Request) {
   if (body.config) cameras[body.id] = body.config
   else delete cameras[body.id]
   if (Object.keys(cameras).length > 200) return json({ error: 'At most 200 cameras per workspace' }, 400)
-  return (await writeDoc(id, 'cameras', { cameras })) ? json({ ok: true }) : json({ error: 'Storage unavailable' }, 502)
+  const res = await writeDoc(id, 'cameras', { cameras })
+  return res instanceof Response && res.ok ? json({ ok: true }) : storageError(res)
 }

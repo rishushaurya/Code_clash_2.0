@@ -3,7 +3,7 @@
 
 import { z } from 'zod'
 import { readDoc, writeDoc } from '../_lib/db.js'
-import { json, readBody, requireWorkspace } from '../_lib/http.js'
+import { json, readBody, requireWorkspace, storageError } from '../_lib/http.js'
 
 const SiteBody = z.object({ version: z.literal(1), rooms: z.array(z.unknown()).max(2000), floors: z.array(z.unknown()).min(1) }).passthrough()
 
@@ -20,5 +20,6 @@ export async function PUT(req: Request) {
   if (id instanceof Response) return id
   const body = await readBody(req, SiteBody, 1_000_000)
   if (body instanceof Response) return body
-  return (await writeDoc(id, 'site', body)) ? json({ ok: true }) : json({ error: 'Storage unavailable' }, 502)
+  const res = await writeDoc(id, 'site', body)
+  return res instanceof Response && res.ok ? json({ ok: true }) : storageError(res)
 }

@@ -9,7 +9,8 @@ const TOKEN_DAYS = 30
 const ID = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/
 
 const secret = () => {
-  const s = process.env.WORKSPACE_SECRET
+  // Trimmed: a value pasted into a dashboard often carries a line break.
+  const s = process.env.WORKSPACE_SECRET?.trim()
   return s && s.length >= 32 ? s : null
 }
 export const authConfigured = () => secret() !== null
