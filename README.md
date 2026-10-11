@@ -181,7 +181,7 @@ Without Supabase keys, the browser's `BroadcastChannel` links the camera, twin a
 | `src/relay/`, `firmware/`, `api/_routes/` (cameras, command, alert, telegram, ingest, report) | Relay, camera settings, commands, Telegram, sensor ingest, visitor tips | Aditya |
 | `src/twin/` | Live twin store, energy and CO2 maths, rules, camera merge, realtime, recorded utilization | Priyanshu |
 | `src/sim/` | What-if engine and Monte Carlo | Priyanshu |
-| `src/ai/`, `api/[...route].ts`, `api/_routes/ai/`, `api/_lib/` | AI client, offline templates, Copilot tools, AI endpoints (Set up with AI included), grounding check, the API router, workspace auth | Priyanshu |
+| `src/ai/`, `api/router.ts`, `api/_routes/ai/`, `api/_lib/` | AI client, offline templates, Copilot tools, AI endpoints (Set up with AI included), grounding check, the API router, workspace auth | Priyanshu |
 | `src/shared/` | Shared types, engineering constants, the site model, the signed-in workspace | Priyanshu |
 | `src/ui/` | Workspace sign-in, Live Twin, Room, Scenario Lab, Reports, Setup, Public view | Neev |
 | `docs/` | Research, build spec, design system, integrations, deployment, user guide, site survey | All |

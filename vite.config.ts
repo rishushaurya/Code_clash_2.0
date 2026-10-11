@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 
 /**
- * Serves the API during `npm run dev` through the same router Vercel runs (api/[...route].ts),
+ * Serves the API during `npm run dev` through the same router Vercel runs (api/router.ts),
  * so the whole app, AI included, runs on localhost without the Vercel CLI.
  */
 function devApi(): Plugin {
@@ -15,7 +15,7 @@ function devApi(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith('/api/')) return next()
         try {
-          const { route } = await server.ssrLoadModule('/api/[...route].ts')
+          const { route } = await server.ssrLoadModule('/api/router.ts')
           const chunks: Buffer[] = []
           for await (const c of req) chunks.push(c as Buffer)
           const headers = Object.entries(req.headers).flatMap(([k, v]) => (typeof v === 'string' ? [[k, v] as [string, string]] : []))

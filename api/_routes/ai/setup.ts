@@ -146,7 +146,7 @@ export function normalize(raw: RawDraft, said: string): SetupDraft {
     if (from !== null && to !== null && to > from && days.length) hours = { from, to, days }
   }
   // "Open 24/7" in the text is the person's own statement of the hours.
-  if (/24\s*[x×/*]\s*7|round the clock|always open/i.test(said) && (!hours || (hours.from === 0 && hours.to === 24))) hours = { from: 0, to: 24, days: [0, 1, 2, 3, 4, 5, 6] }
+  if (/24\s*[-x×/*]\s*7|round the clock|always open/i.test(said) && (!hours || (hours.from === 0 && hours.to === 24))) hours = { from: 0, to: 24, days: [0, 1, 2, 3, 4, 5, 6] }
   const currency = raw.currency && /^[a-z]{3}$/i.test(raw.currency) ? raw.currency.toUpperCase() : null
   const tariff = raw.tariffPerKwh !== null && raw.tariffPerKwh >= 0 && raw.tariffPerKwh <= 1000 ? raw.tariffPerKwh : null
   return { organization: raw.organization, buildingName: raw.buildingName, city: raw.city, currency, tariffPerKwh: tariff, hours, floors, rooms }
@@ -168,7 +168,7 @@ export function keepStated(draft: SetupDraft, text: string) {
   const out: SetupDraft = { ...draft }
   out.tariffPerKwh = ok(draft.tariffPerKwh, 'tariff')
   // "9 am to 5 pm" is written as 9 and 5 but means 9 and 17; "24/7" is written as 24 and means 0 to 24.
-  const allDay = draft.hours?.from === 0 && draft.hours.to === 24 && /24\s*[x×/*]\s*7|round the clock|always open/i.test(text)
+  const allDay = draft.hours?.from === 0 && draft.hours.to === 24 && /24\s*[-x×/*]\s*7|round the clock|always open/i.test(text)
   if (draft.hours && !allDay && !([draft.hours.from, draft.hours.to].every((h) => seen.has(h) || seen.has(h - 12)))) {
     dropped.push(`opening hours (${draft.hours.from} to ${draft.hours.to})`)
     out.hours = undefined

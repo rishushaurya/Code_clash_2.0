@@ -21,7 +21,7 @@ When Pratibimb is sold to customers, move Vercel to Pro (commercial use) or anot
 | `VITE_SUPABASE_ANON_KEY` | Supabase, Project Settings, **API Keys**, Publishable key (`sb_publishable_...`); a legacy `anon` key also works | Same; it is public by design and can read or write no table |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase, Project Settings, **API Keys**, Secret key (`sb_secret_...`, press the eye to reveal it); a legacy `service_role` key also works | Server storage: workspaces, sites, cameras, events. **Secret.** |
 | `WORKSPACE_SECRET` | You generate it (step 3) | Signs workspace sessions; derives channel names and sensor keys. **Secret.** |
-| `GROQ_API_KEY` | console.groq.com, API Keys | AI recommendations, reports, Copilot, Set up with AI |
+| `GROQ_API_KEY` | console.groq.com, API Keys | AI recommendations, reports, Copilot, Set up with AI, and voice (Whisper speech-to-text) |
 | `GEMINI_API_KEY` | aistudio.google.com, Get API key, then **Copy key** (it starts with `AQ.` or `AIza`) | AI fallback and the AI Surveyor (photo to device list) |
 | `TELEGRAM_BOT_TOKEN` | Telegram, @BotFather, /newbot | Alerts and the weekly digest |
 | `TELEGRAM_WEBHOOK_SECRET` | You generate it | Lets only Telegram call `/api/telegram` |
@@ -92,7 +92,7 @@ One is enough; with both, Pratibimb uses Groq first and Gemini when Groq is busy
 
 Before deploying, you can test every key from your computer: put them in `.env` (copy `.env.example`) and run `npm run check:keys`. It prints pass or fail for each service and never prints a key.
 
-`vercel.json` already sets the security headers and the weekly digest (Mondays). The whole API is one function, `api/[...route].ts`, so the Hobby limit of 12 functions is never reached.
+`vercel.json` already sets the security headers and the weekly digest (Mondays). The whole API is one function, `api/router.ts`, so the Hobby limit of 12 functions is never reached.
 
 ## 7. Telegram (optional)
 

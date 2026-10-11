@@ -129,4 +129,5 @@ All keys, where to get them free, and what each unlocks: [DEPLOY.md](DEPLOY.md),
 | People in the corridor are counted | Mark the room boundary tighter. |
 | A phone camera does not reach the twin | Both must be in the same online workspace; scan the QR code again. A workspace kept in one browser cannot reach phones. |
 | Two cameras in a room double the count | Turn off **Cameras split the room** in Setup when their views overlap. |
+| Speak does nothing or asks for permission | Allow the microphone in the address bar. Voice is written down on the server, so it works in every browser, Brave and Firefox included, but needs the online version with `GROQ_API_KEY`. |
 | AI text looks like a template | No AI key, the free quota is used up for now, or the AI's answer failed the number check; the template is the safe fallback. |

@@ -27,7 +27,7 @@ This is the engineering contract for Pratibimb: data rules, folder ownership, sh
 | Charts | Recharts through shadcn `chart`, including `Sankey` | One chart library |
 | Realtime | Supabase broadcast when keys exist; `BroadcastChannel` always | Devices over the internet; tabs of one browser with no setup |
 | Event log | Supabase Postgres, one table | Action-taken record for audits |
-| Server | One Vercel function, `api/[...route].ts`, routing to Web-standard handlers in `api/_routes`; the same router serves `npm run dev` | Secrets stay server-side; fits Vercel Hobby's 12-function limit |
+| Server | One Vercel function, `api/router.ts`, routing to Web-standard handlers in `api/_routes`; the same router serves `npm run dev` | Secrets stay server-side; fits Vercel Hobby's 12-function limit |
 | Workspaces | Name and password; scrypt hash in Supabase; HMAC-signed 30-day sessions; channel names and sensor keys derived from `WORKSPACE_SECRET`; a browser-only workspace (PBKDF2) without server storage | Many customers on one deployment, no auth vendor |
 | AI | Plain `fetch` to Groq, then Gemini (OpenAI-compatible APIs); Zod; grounding retry | No SDK needed |
 | Integrations | Ingest API with key, HMAC-signed command webhook, Telegram Bot API, MediaMTX, Python edge worker | Fits whatever the building already has |
@@ -37,13 +37,13 @@ This is the engineering contract for Pratibimb: data rules, folder ownership, sh
 
 | Initials | Member | Owns |
 | --- | --- | --- |
-| **PS** | Priyanshu Shaurya | `src/shared`, `src/twin`, `src/sim`, `src/ai`, `api/[...route].ts`, `api/_lib`, `api/_routes/ai`, `api/_routes/{workspace,site,events,status,health,digest}.ts`, `supabase` |
+| **PS** | Priyanshu Shaurya | `src/shared`, `src/twin`, `src/sim`, `src/ai`, `api/router.ts`, `api/_lib`, `api/_routes/ai`, `api/_routes/{workspace,site,events,status,health,digest}.ts`, `supabase` |
 | **AR** | Aditya Raj | `src/cv`, `src/relay`, `firmware`, `edge`, `api/_routes/{cameras,command,alert,telegram,ingest,report}.ts` |
 | **NP** | Neev Pujari | `src/ui`, `src/App.tsx`, `src/index.css`, design system, pitch |
 
 ```
 api/
-  [...route].ts            the one function: /api/<path> -> api/_routes/<path>.ts (folders starting with _ are not functions)
+  router.ts                the one function: vercel.json rewrites /api/<path> to it; it calls api/_routes/<path>.ts (folders starting with _ are not functions)
   _lib/auth.ts             workspaces: scrypt passwords, signed sessions, derived channel names and sensor keys
   _lib/grounding.ts        rejects AI figures not in the facts (+ test)
   _lib/llm.ts              Groq then Gemini, JSON, text or image, retry once (+ test)
@@ -56,6 +56,7 @@ api/
   _routes/ai/copilot.ts    question -> tool; tool result -> spoken answer
   _routes/ai/surveyor.ts   ceiling photo -> device boxes
   _routes/ai/setup.ts      a description of the building -> setup draft; numbers not in the text are dropped
+  _routes/ai/transcribe.ts recorded speech -> text with Groq Whisper (voice in every browser); audio never stored
   _routes/site.ts          the workspace's site file: GET and PUT
   _routes/cameras.ts       the workspace's camera settings, saved one camera at a time
   _routes/ingest.ts        sensor readings -> the workspace's twin (its sensor key)

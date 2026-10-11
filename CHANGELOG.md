@@ -2,6 +2,40 @@
 
 Newest entry first. Every session, human or AI, adds one entry.
 
+## Session 26 · AI routes reach the server on Vercel; voice in every browser · Claude Opus 5.5
+
+**What:**
+- **Root cause of "The AI could not read it" on the live site.** Vercel matched the catch-all file `api/[...route].ts` for one path segment only. `/api/workspace` worked, but every `/api/ai/...` request ended at Vercel's own 404 before reaching the app.
+  - The router is now `api/router.ts`, and `vercel.json` rewrites `/api/<path>` to `/api/router?path=<path>`.
+  - Still one function. Files take priority over rewrites, so the router never loops.
+- **Voice works in every browser.** Brave switches off the browser's speech service ("network" error) and Firefox has none.
+  - Speak (Set up with AI) and the Copilot's microphone now record with MediaRecorder.
+  - The new `/api/ai/transcribe` sends the recording to Groq Whisper (`whisper-large-v3-turbo`), with English, Hindi or Kannada.
+  - The audio is passed through, never stored.
+  - Microphone errors are explained in plain words.
+- **Smaller fixes:**
+  - "24-7" (how Whisper writes it) now counts as open all week;
+  - Vercel's function type check gets the Node types (`tsconfig.json`).
+
+**Created / Modified:**
+- `api/router.ts` (renamed), `api/_routes/ai/transcribe.ts` (new), `vercel.json`, `vite.config.ts`, `tsconfig.json`;
+- `api/_routes/ai/setup.ts`, `api/_routes/handlers.test.ts`;
+- `src/ai/client.ts`, `src/ui/components/{speech.ts,AiSetup.tsx,Copilot.tsx}`;
+- README, BUILD_SPEC, DEPLOY, USER_GUIDE.
+
+**Checks:**
+- 87 tests pass, including the router reached through `?path=` and the transcribe route; `npx tsc -b` and `npm run build` pass.
+- Live on the team's keys through the local server:
+  - a spoken WAV sample came back as "Main block in Bengaluru. Room 1 has two lights and one fan. The bathroom has one light. Open 24-7.";
+  - wrong audio type answered 415 and no session 401;
+  - the test workspace was removed afterwards.
+- The live site showed the cause before the fix: `/api/ai/*` answered Vercel's NOT_FOUND while `/api/workspace` reached the app.
+
+**Next:**
+- Push.
+- Check `https://<site>/api/ai/setup` answers 401 (reaches the app) instead of NOT_FOUND.
+- Then try Set up with AI and Speak in Brave.
+
 ## Session 25 · Going live: key formats, models, storage errors, voice setup · Claude Opus 5.5
 
 **What:**

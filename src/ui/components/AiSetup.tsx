@@ -5,7 +5,7 @@
 import { ClipboardCopy, Mic, Square, Sparkles, TriangleAlert } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { setupFromText } from '@/ai/client'
+import { setupFromText, transcribe } from '@/ai/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { applySetupDraft, COUNTRY_PRESETS, ROOM_TEMPLATES, type SetupDraft } from '@/shared/site'
 import type { Site } from '@/shared/types'
 import { online } from '@/shared/workspace'
-import { canListen, recognition, speak, type Recognition } from './speech'
+import { canRecord, micError, speak, startRecording } from './speech'
 
 const FORMAT = `Organization: City Engineering College
 Building: Main Block
@@ -29,9 +29,9 @@ LAB-1 | Computer Lab | floor 1 | lab | 40 seats | 12 lights, 2 ACs, 40 PCs, no w
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const VOICES = [
-  { lang: 'en-IN', label: 'English' },
-  { lang: 'hi-IN', label: 'Hindi' },
-  { lang: 'kn-IN', label: 'Kannada' },
+  { lang: 'en', label: 'English' },
+  { lang: 'hi', label: 'Hindi' },
+  { lang: 'kn', label: 'Kannada' },
 ]
 /** Devanagari and Kannada digits as 0-9, so spoken numbers pass the server's check that every number was said */
 export const asciiDigits = (t: string) =>
@@ -58,32 +58,31 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
   const [state, setState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [error, setError] = useState('')
   const [result, setResult] = useState<Result | null>(null)
-  const [lang, setLang] = useState('en-IN')
-  const [listening, setListening] = useState(false)
+  const [lang, setLang] = useState('en')
+  const [voice, setVoice] = useState<'idle' | 'recording' | 'writing'>('idle')
   const [spoken, setSpoken] = useState(false)
-  const recRef = useRef<Recognition | null>(null)
+  const recRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
   const preview = result ? applySetupDraft(draft, result.draft) : null
 
-  /** Dictation: what you say is added to the description; press again to stop. */
-  function toggleVoice() {
-    if (listening) return recRef.current?.stop()
-    const rec = recognition(lang, true)
-    if (!rec) return
-    const before = text.trimEnd() ? `${text.trimEnd()}\n` : ''
-    rec.onresult = (e) => {
-      let said = ''
-      for (let i = 0; i < e.results.length; i++) said += `${e.results[i][0].transcript}${e.results[i].isFinal ? '\n' : ''}`
-      setText(asciiDigits(before + said).slice(0, 8000))
+  /** Dictation: press Speak, describe the building, press Stop; the words are added to the description. */
+  async function toggleVoice() {
+    if (voice === 'recording') return void recRef.current?.stop()
+    try {
+      const rec = await startRecording()
+      recRef.current = rec
+      setVoice('recording')
+      setSpoken(true)
+      const audio = await rec.done
+      setVoice('writing')
+      const said = asciiDigits(await transcribe(audio, lang))
+      setText((t) => `${t.trimEnd() ? `${t.trimEnd()}\n` : ''}${said}`.slice(0, 8000))
+      if (!said) toast('No speech was heard. Speak closer to the microphone and try again.')
+    } catch (e) {
+      toast.error(e instanceof Error && e.message.startsWith('transcribe') ? 'The voice service is not available just now. You can type instead.' : micError(e))
+    } finally {
+      recRef.current = null
+      setVoice('idle')
     }
-    rec.onend = () => setListening(false)
-    rec.onerror = () => {
-      setListening(false)
-      toast.error('The microphone is not available. Allow it in the address bar, or type instead.')
-    }
-    recRef.current = rec
-    setListening(true)
-    setSpoken(true)
-    rec.start()
   }
 
   async function read() {
@@ -166,13 +165,13 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
             <div className="space-y-1">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label htmlFor="ai-setup-text">Your building</Label>
-                {canListen && (
+                {canRecord && (
                   <div className="flex items-center gap-2">
                     <select
                       aria-label="Language you will speak"
                       className="h-8 rounded-md border bg-background px-2 text-sm"
                       value={lang}
-                      disabled={listening}
+                      disabled={voice !== 'idle'}
                       onChange={(e) => setLang(e.target.value)}
                     >
                       {VOICES.map((v) => (
@@ -181,13 +180,13 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
                         </option>
                       ))}
                     </select>
-                    <Button type="button" size="sm" variant={listening ? 'default' : 'outline'} onClick={toggleVoice} aria-pressed={listening}>
-                      {listening ? <Square aria-hidden /> : <Mic aria-hidden />} {listening ? 'Stop' : 'Speak'}
+                    <Button type="button" size="sm" variant={voice === 'recording' ? 'default' : 'outline'} onClick={toggleVoice} disabled={voice === 'writing'} aria-pressed={voice === 'recording'}>
+                      {voice === 'recording' ? <Square aria-hidden /> : <Mic aria-hidden />} {voice === 'recording' ? 'Stop' : voice === 'writing' ? 'Writing it down' : 'Speak'}
                     </Button>
                   </div>
                 )}
               </div>
-              {listening && (
+              {voice === 'recording' && (
                 <p role="status" className="text-xs text-highlight">
                   Listening. Describe the building, its floors, then each room with its seats and devices. Say numbers clearly. Press Stop when done.
                 </p>
@@ -201,7 +200,7 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
                 placeholder="Describe the building, its floors and its rooms"
               />
               <p className="num flex justify-between gap-2 text-xs text-muted-foreground">
-                <span>{canListen ? "Typed or spoken. Your browser's speech service turns speech into text; you can correct it here." : ''}</span>
+                <span>{canRecord ? 'Typed or spoken. Speech is sent to the AI service to be written down, never stored; correct it here.' : ''}</span>
                 <span>{text.length} / 8000</span>
               </p>
             </div>

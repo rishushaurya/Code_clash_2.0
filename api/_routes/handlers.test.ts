@@ -2,7 +2,7 @@
 
 import { createHmac } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { route } from '../[...route].js'
+import { route } from '../router.js'
 import { channels, hashPassword, ingestKey, signToken, workspaceId } from '../_lib/auth.js'
 import { workspaceIdOf } from '../../src/shared/workspace.js'
 import { weeklyDigest } from './digest.js'
@@ -43,6 +43,12 @@ afterEach(() => {
 })
 
 describe('router', () => {
+  it('takes the path from the query, as vercel.json rewrites /api/ai/setup to /api/router?path=ai/setup', async () => {
+    const res = await route(new Request('http://localhost/api/router?path=ai/setup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }))
+    expect(res.status).toBe(401) // reached the setup route, which asks for a workspace session
+    expect((await route(new Request('http://localhost/api/router?path=health'))).status).toBe(200)
+  })
+
   it('answers 404 for unknown paths and 405 for unknown methods', async () => {
     expect((await call('nope')).status).toBe(404)
     expect((await call('health', {}, {}, 'PUT')).status).toBe(405)
@@ -150,7 +156,7 @@ describe('/api/ai/setup', () => {
 
   it('reads an informal home description: no ids, home rooms, nulls, numbers as text, 24/7', async () => {
     vi.stubEnv('GROQ_API_KEY', 'k')
-    const home = 'home in bengaluru, 24/7 open, room1 (1 fan 1 light), room 2 (1 fan 2 light), room 3 (3 light) and 1 bath room with (1 light)'
+    const home = 'home in bengaluru, 24-7 open, room1 (1 fan 1 light), room 2 (1 fan 2 light), room 3 (3 light) and 1 bath room with (1 light)'
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -194,6 +200,25 @@ describe('/api/ai/setup', () => {
     expect(Object.keys(out.draft).filter((k) => !allowed.includes(k))).toEqual([])
     // The closing tag cannot end the data block early.
     expect(bodyOf(fetchMock).messages[1].content.match(/<\/site_description>/g)).toHaveLength(1)
+  })
+})
+
+describe('/api/ai/transcribe', () => {
+  it('passes recorded audio to Whisper with the language and returns only the text', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'k')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ text: ' Room 1 has two lights. ', x_groq: { id: 'r' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const send = (body: BodyInit, type: string, headers: Record<string, string> = auth()) =>
+      route(new Request('http://localhost/api/router?path=ai/transcribe&lang=kn', { method: 'POST', headers: { 'content-type': type, ...headers }, body }))
+    expect((await send('x', 'audio/webm', {})).status).toBe(401)
+    expect((await send('x', 'text/plain')).status).toBe(415)
+    expect((await send(new Uint8Array(0), 'audio/webm')).status).toBe(400)
+    expect((await send(new Uint8Array(4_000_001), 'audio/webm')).status).toBe(413)
+    const res = await send(new Uint8Array([1, 2, 3]), 'audio/webm;codecs=opus')
+    expect(await res.json()).toEqual({ text: 'Room 1 has two lights.' })
+    const form = fetchMock.mock.calls[0][1].body as FormData
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/audio/transcriptions')
+    expect([form.get('model'), form.get('language'), (form.get('file') as File).name]).toEqual(['whisper-large-v3-turbo', 'kn', 'speech.webm'])
   })
 })
 

@@ -122,3 +122,15 @@ export async function sendTelegramAlert(facts: FactsPack, commandId: string) {
 export async function setupFromText(text: string): Promise<{ draft: SetupDraft; dropped: string[]; unclear: string[] }> {
   return post('/api/ai/setup', { text })
 }
+
+/** Writes recorded speech down on the server (Groq Whisper); `lang` is en, hi or kn */
+export async function transcribe(audio: Blob, lang: string): Promise<string> {
+  if (!online()) throw new Error('offline workspace')
+  const res = await fetch(`/api/ai/transcribe?lang=${encodeURIComponent(lang)}`, {
+    method: 'POST',
+    headers: { 'content-type': audio.type || 'audio/webm', ...authHeaders() },
+    body: audio,
+  })
+  if (!res.ok) throw new Error(`transcribe ${res.status}`)
+  return ((await res.json()) as { text: string }).text
+}

@@ -2,15 +2,17 @@
 // simulation, the AI explains the numbers, and the answer is spoken back.
 
 import { Bot, Mic, MicOff, Send } from 'lucide-react'
-import { useState } from 'react'
-import { copilotAnswer, copilotPlan, type CopilotTool } from '@/ai/client'
+import { useRef, useState } from 'react'
+import { copilotAnswer, copilotPlan, transcribe, type CopilotTool } from '@/ai/client'
 import { guessTool, runTool, templateAnswer } from '@/ai/tools'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getSite } from '@/shared/site'
-import { canListen, recognition, speak } from './speech'
+import { toast } from 'sonner'
+import { online } from '@/shared/workspace'
+import { canRecord, micError, speak, startRecording } from './speech'
 
 const TOOL_LABEL: Record<CopilotTool['tool'], string> = {
   runScenario: 'Ran the simulation',
@@ -24,6 +26,7 @@ export function Copilot() {
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [listening, setListening] = useState(false)
+  const recRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
   const [turn, setTurn] = useState<{ q: string; tool: CopilotTool; answer: string; ai: boolean } | null>(null)
 
   async function ask(question: string) {
@@ -51,18 +54,27 @@ export function Copilot() {
     speak(answer)
   }
 
-  function listen() {
-    const rec = recognition('en-IN')
-    if (!rec) return
-    rec.onresult = (e) => {
-      const text = e.results[0][0].transcript
+  /** Tap to speak, tap again to ask; the question is written down on the server, then asked. */
+  async function listen() {
+    if (recRef.current) return void recRef.current.stop()
+    try {
+      const rec = await startRecording(30_000)
+      recRef.current = rec
+      setListening(true)
+      const audio = await rec.done
+      recRef.current = null
+      setListening(false)
+      setBusy(true)
+      const text = await transcribe(audio, 'en')
+      setBusy(false)
       setQ(text)
-      void ask(text)
+      if (text) void ask(text)
+    } catch (e) {
+      recRef.current = null
+      setListening(false)
+      setBusy(false)
+      toast.error(e instanceof Error && e.message.startsWith('transcribe') ? 'The voice service is not available just now. Type the question instead.' : micError(e))
     }
-    rec.onend = () => setListening(false)
-    rec.onerror = () => setListening(false)
-    setListening(true)
-    rec.start()
   }
 
   return (
@@ -81,8 +93,8 @@ export function Copilot() {
           }}
         >
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="What would auto-off save this semester?" aria-label="Question for the building" />
-          {canListen && (
-            <Button type="button" variant="outline" size="icon" onClick={listen} disabled={listening || busy} aria-label={listening ? 'Listening' : 'Ask by voice'} title="Ask by voice">
+          {canRecord && online() && (
+            <Button type="button" variant={listening ? 'default' : 'outline'} size="icon" onClick={listen} disabled={busy} aria-pressed={listening} aria-label={listening ? 'Stop and ask' : 'Ask by voice'} title={listening ? 'Listening: tap again to ask' : 'Ask by voice'}>
               {listening ? <MicOff aria-hidden /> : <Mic aria-hidden />}
             </Button>
           )}
