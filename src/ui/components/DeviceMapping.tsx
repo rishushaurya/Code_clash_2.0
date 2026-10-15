@@ -108,7 +108,7 @@ export function DeviceMapping() {
           <>
             {!rooms.length && <p className="text-muted-foreground">Add rooms in Site setup first.</p>}
             <section className="space-y-2" aria-label="Shelly plugs">
-              <h3 className="font-medium">Shelly plugs and relays</h3>
+              <h2 className="font-medium">Shelly plugs and relays</h2>
               {data.shelly.length === 0 && <p className="text-muted-foreground">None yet. The device id is on the Shelly app's device page.</p>}
               {data.shelly.map((s, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">
@@ -134,7 +134,7 @@ export function DeviceMapping() {
               )}
             </section>
             <section className="space-y-2" aria-label="Home Assistant entities">
-              <h3 className="font-medium">Home Assistant entities</h3>
+              <h2 className="font-medium">Home Assistant entities</h2>
               {data.homeAssistant.length === 0 && <p className="text-muted-foreground">None yet. Entity ids look like light.lecture_hall_1.</p>}
               {data.homeAssistant.map((h, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">

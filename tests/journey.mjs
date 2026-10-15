@@ -131,7 +131,7 @@ else try {
   check('events summary has the action', r.status === 200 && r.data.actions?.some((a) => a.text.includes('journey test')), brief(r))
 
   // Phase 1 and BYOK routes (built by the Server session)
-  r = await api('POST', 'reading', { token, body: { readings: [{ roomId: ROOM, camId: `${ROOM}/cam-1`, ts: Date.now(), headcount: 0, zones: { L1: true }, confidence: 0.9 }] } })
+  r = await api('POST', 'reading', { token, body: { readings: [{ roomId: ROOM, cameraId: `${ROOM}/cam-1`, sourceKind: 'webcam', ts: Date.now(), headcount: 0, zones: { L1: true }, confidence: 0.9 }] } })
   if (!notBuilt('reading', r)) check('reading stores a camera reading', r.status === 200, brief(r))
   r = await api('GET', 'state', { token })
   if (!notBuilt('state', r)) check('state answers', r.status === 200, brief(r))
@@ -166,10 +166,12 @@ else try {
   check('Set up with AI reads the rooms', r.status === 200 && draftRooms.length === 2, brief(r))
   r = await api('POST', 'ai/recommend', { token, body: { facts: facts({ alertType: 'co2_high', co2ppm: 1250, headcount: 40, devicesOn: [], wattsNow: 0, costPerHourNow: 0 }) } })
   const co2Text = `${r.data?.action ?? ''} ${r.data?.reason ?? ''}`
-  check('A1 CO2 card advises ventilation, not AC', r.status === 200 && /ventilat|window|fresh air|exhaust|fan/i.test(co2Text) && !/thermostat|ACs?/.test(co2Text), `${r.status} ${co2Text.slice(0, 200)}`)
+  // Code writes the ventilation action; the AI's reason must not turn a CO2 alert into AC advice.
+  check('A1 CO2 reason never turns into AC advice', r.status === 200 && !r.data?.action && !/thermostat|\bACs?\b/.test(co2Text), `${r.status} ${co2Text.slice(0, 200)}`)
   r = await api('POST', 'ai/recommend', { token, body: { facts: facts({ alertType: 'ac_overcooling', indoorTempC: 21, acSavingPercent: 18, monthlySavingCost: 420 }) } })
   const acText = `${r.data?.action ?? ''} ${r.data?.reason ?? ''}`
-  check('A1 AC card targets 24 C, not the current 21', r.status === 200 && /24/.test(acText) && !/(set|to)\s+21/i.test(acText), `${r.status} ${acText.slice(0, 200)}`)
+  // Code writes the action (24 C, BEE); the route returns the AI's reason only, which must not set 21 C.
+  check('A1 AC reason never targets the current 21 C', r.status === 200 && !r.data?.action && !/(set|to)\s+21/i.test(acText), `${r.status} ${acText.slice(0, 200)}`)
   r = await api('POST', 'ai/copilot', { token, body: { question: 'Which room uses the most power right now?', roomIds: [ROOM, 'CR-1'] } })
   check('A6 Copilot picks a live summary for "which room uses the most power"', r.status === 200 && r.data.tool === 'liveSummary', brief(r))
   r = await api('POST', 'ai/copilot', { token, body: { question: 'Write me a poem about cats', roomIds: [ROOM] } })

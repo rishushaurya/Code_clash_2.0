@@ -307,7 +307,7 @@ function AllCameras({ rooms, active }: { rooms: Room[]; active: boolean }) {
           if (!here.length) return null
           return (
             <section key={floor.level} aria-label={floor.building ? `${floor.building}, ${floor.name}` : floor.name} className="space-y-2">
-              <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{floor.building ? `${floor.building} · ${floor.name}` : floor.name}</h3>
+              <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{floor.building ? `${floor.building} · ${floor.name}` : floor.name}</h2>
               {here.map((room) => {
                 const ids = [...new Set([...Object.keys(cameras).filter((id) => cameras[id].roomId === room.id), ...Object.keys(seen).filter((id) => seen[id].roomId === room.id)])].sort()
                 return (

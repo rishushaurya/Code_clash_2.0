@@ -186,9 +186,9 @@ function AppSidebar() {
   const { setOpenMobile } = useSidebar()
   const current = pageOf(pathname)
   return (
-    <Sidebar collapsible="icon" className="no-print">
+    <Sidebar collapsible="icon" className="no-print" role="navigation" aria-label="Main">
       <SidebarHeader>
-        <Link to="/" className="flex h-10 items-center gap-2 overflow-hidden rounded-md px-1.5" onClick={() => setOpenMobile(false)}>
+        <Link to="/" aria-label={`Pratibimb, ${site.buildingName || "overview"}`} className="flex h-10 items-center gap-2 overflow-hidden rounded-md px-1.5" onClick={() => setOpenMobile(false)}>
           <span className="grid size-7 shrink-0 place-items-center rounded-md bg-highlight font-heading text-sm font-semibold text-[var(--on-highlight)]" aria-hidden>
             P
           </span>
