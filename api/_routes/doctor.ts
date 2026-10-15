@@ -47,13 +47,15 @@ export async function GET(req: Request) {
   const beat = await rows<{ updated_at: string }>('twin_state?workspace=eq._tick&select=updated_at')
   add('Server storage', storageReady() && !problem && beat !== null, problem ?? (beat === null ? 'Supabase did not answer, or the tables are missing' : localMode() ? 'Kept in a local file on this computer (.pratibimb-data)' : 'Supabase answers'), 'Check the Supabase keys on the server and run supabase/schema.sql in the Supabase SQL editor (docs/DEPLOY.md, section 4).')
   add('Workspace secret', authConfigured(), authConfigured() ? 'Set' : 'Missing or shorter than 32 characters', 'Set WORKSPACE_SECRET on the server (docs/DEPLOY.md, section 3).')
-  add('Live channel', Boolean(process.env.VITE_SUPABASE_ANON_KEY), process.env.VITE_SUPABASE_ANON_KEY ? 'Phones, cameras and sensors reach the twin over the internet' : 'No public Supabase key', 'Set VITE_SUPABASE_ANON_KEY and deploy again.')
+  if (localMode())
+    add('Live channel', true, 'This computer: cameras in tabs of this browser feed the twin. Phones and sensors over the internet need the online version (docs/DEPLOY.md).')
+  else add('Live channel', Boolean(process.env.VITE_SUPABASE_ANON_KEY), process.env.VITE_SUPABASE_ANON_KEY ? 'Phones, cameras and sensors reach the twin over the internet' : 'No public Supabase key', 'Set VITE_SUPABASE_ANON_KEY and deploy again.')
   const tickAt = beat?.[0] ? Date.parse(beat[0].updated_at) : null
   add(
     'Server tick (24/7 twin)',
     tickAt !== null && now - tickAt < TICK_HEALTHY_MS,
-    tickAt ? `Last run ${ago(now - tickAt)}` : 'Has never run',
-    'Schedule /api/tick every minute with pg_cron (the commented block at the end of supabase/schema.sql), with CRON_SECRET set on the server.',
+    tickAt ? `Last run ${ago(now - tickAt)}` : localMode() ? 'Starts within a minute of npm run dev' : 'Has never run',
+    localMode() ? 'The dev server runs it every minute; keep npm run dev running.' : 'Schedule /api/tick every minute with pg_cron (the commented block at the end of supabase/schema.sql), with CRON_SECRET set on the server.',
   )
 
   const [keys, site, conn, inputs, chat, ai] = await Promise.all([
