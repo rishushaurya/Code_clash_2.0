@@ -1,16 +1,15 @@
-// POST /api/command  (Bearer token)
-// Logs a command, broadcasts it to the workspace's twin on other devices, and forwards it to the customer's
-// own control system through the signed command webhook, if one is configured.
+// POST /api/command  (Bearer token, manager or owner)
+// Logs a command, broadcasts it to the workspace's twin on other devices, and sends it to the customer's own
+// systems: the signed command webhook, and the connected smart plugs and Home Assistant (api/_routes/connections.ts).
 
-import { broadcast, forwardCommand, json, logEvent, readBody, requireWorkspace } from '../_lib/http.js'
+import { json, readBody, requireRole } from '../_lib/http.js'
 import { CommandSchema } from '../_lib/schemas.js'
+import { dispatchCommand } from './connections.js'
 
 export async function POST(req: Request) {
-  const id = requireWorkspace(req)
-  if (id instanceof Response) return id
+  const c = await requireRole(req, 'manager')
+  if (c instanceof Response) return c
   const cmd = await readBody(req, CommandSchema, 2_000)
   if (cmd instanceof Response) return cmd
-  const [broadcasted, forwarded] = await Promise.all([broadcast(id, 'command', cmd), forwardCommand(id, cmd)])
-  await logEvent(id, cmd.roomId, 'command', cmd)
-  return json({ ok: true, broadcasted, forwarded })
+  return json({ ok: true, ...(await dispatchCommand(c.id, cmd)) })
 }

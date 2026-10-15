@@ -2,13 +2,10 @@
 // Tariff, grid factor and currency come from the customer's site settings.
 
 import { getSite } from '@/shared/site'
-import type { Room } from '@/shared/types'
+import { kwhFrom } from './compute'
 
-export const roomWatts = (room: Room, deviceOn: Record<string, boolean>) =>
-  room.devices.reduce((sum, d) => sum + (deviceOn[d.id] ? d.ratedW : 0), 0)
-
-/** kWh = watts x seconds / 3,600,000 */
-export const kwhFrom = (watts: number, seconds: number) => (watts * seconds) / 3_600_000
+// The pure sums live in compute.ts, which the server also loads.
+export { kwhFrom, roomWatts, round } from './compute'
 export const costFrom = (kwh: number) => kwh * getSite().tariffPerKwh
 export const co2KgFrom = (kwh: number) => kwh * getSite().gridKgPerKwh
 export const costPerHour = (watts: number) => costFrom(kwhFrom(watts, 3600))
@@ -27,5 +24,3 @@ export function formatMoney(v: number, digits = 0, currency = getSite().currency
     return `${currency} ${v.toFixed(digits)}`
   }
 }
-
-export const round = (v: number, digits = 2) => Math.round(v * 10 ** digits) / 10 ** digits

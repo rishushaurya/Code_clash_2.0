@@ -3,7 +3,7 @@
 // tokens, so no session table exists. Channel names, the public view key and the sensor key are all
 // derived from WORKSPACE_SECRET, so nothing else needs storing and nobody can guess them.
 
-import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
 
 const TOKEN_DAYS = 30
 const ID = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/
@@ -14,6 +14,8 @@ const secret = () => {
   return s && s.length >= 32 ? s : null
 }
 export const authConfigured = () => secret() !== null
+/** WORKSPACE_SECRET, trimmed; null when missing or shorter than 32 characters */
+export const serverSecret = secret
 
 const mac = (label: string, length: number) => createHmac('sha256', secret()!).update(label).digest('base64url').slice(0, length)
 
@@ -45,18 +47,62 @@ export async function checkPassword(password: string, stored: string) {
   return got.length === want.length && timingSafeEqual(got, want)
 }
 
-export function signToken(id: string, now = Date.now()) {
+/** Owner: everything. Manager: site, cameras, devices and commands. Viewer: reads only. */
+export type Role = 'owner' | 'manager' | 'viewer'
+export const ROLES: Role[] = ['viewer', 'manager', 'owner']
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export interface SessionClaims {
+  id: string
+  exp: number
+  role: Role
+  /** The session's row in the sessions table, so it can be listed and revoked; absent on tokens issued before roles */
+  sid?: string
+}
+
+/**
+ * A session token: `<id>.<exp>.<sid>.<role>.<mac>`. Tokens issued before roles (`<id>.<exp>.<mac>`) still
+ * work as owner until they expire (30 days at most).
+ */
+export function signToken(id: string, now = Date.now(), session?: { sid: string; role: Role }) {
   const exp = now + TOKEN_DAYS * 86_400_000
-  return `${id}.${exp}.${mac(`session:${id}:${exp}`, 43)}`
+  if (!session) return `${id}.${exp}.${mac(`session:${id}:${exp}`, 43)}`
+  return `${id}.${exp}.${session.sid}.${session.role}.${mac(`session:${id}:${exp}:${session.sid}:${session.role}`, 43)}`
+}
+
+export const newSessionId = () => randomUUID()
+
+/** What a token says, or null when it is forged, malformed or expired */
+export function readClaims(token: string, now = Date.now()): SessionClaims | null {
+  if (!secret()) return null
+  const parts = token.split('.')
+  const [id, exp] = parts
+  if (!id || !ID.test(id) || !(Number(exp) > now)) return null
+  if (parts.length === 3) return same(parts[2], mac(`session:${id}:${exp}`, 43)) ? { id, exp: Number(exp), role: 'owner' } : null
+  const [, , sid, role, sig] = parts
+  if (parts.length !== 5 || !UUID.test(sid) || !ROLES.includes(role as Role)) return null
+  return same(sig, mac(`session:${id}:${exp}:${sid}:${role}`, 43)) ? { id, exp: Number(exp), role: role as Role, sid } : null
 }
 
 /** The workspace id a token belongs to, or null when it is forged, malformed or expired */
-export function readToken(token: string, now = Date.now()): string | null {
-  if (!secret()) return null
-  const [id, exp, sig, extra] = token.split('.')
-  if (extra !== undefined || !id || !ID.test(id) || !sig || !(Number(exp) > now)) return null
-  return same(sig, mac(`session:${id}:${exp}`, 43)) ? id : null
+export const readToken = (token: string, now = Date.now()) => readClaims(token, now)?.id ?? null
+
+/** An invite link's key: anyone holding it can join the workspace with this role until it expires */
+export function signInvite(id: string, role: Role, days: number, now = Date.now()) {
+  const exp = now + days * 86_400_000
+  const nonce = randomBytes(6).toString('base64url')
+  return `${id}.${role}.${exp}.${nonce}.${mac(`invite:${id}:${role}:${exp}:${nonce}`, 32)}`
 }
+
+export function readInvite(invite: string, now = Date.now()): { id: string; role: Role } | null {
+  if (!secret()) return null
+  const [id, role, exp, nonce, sig, extra] = invite.split('.')
+  if (extra !== undefined || !id || !ID.test(id) || !ROLES.includes(role as Role) || !(Number(exp) > now) || !nonce || !sig) return null
+  return same(sig, mac(`invite:${id}:${role}:${exp}:${nonce}`, 32)) ? { id, role: role as Role } : null
+}
+
+/** A secret only this deployment can compute, for one purpose of one workspace (Telegram webhook, IP hashes) */
+export const derived = (label: string, length = 32) => mac(`derived:${label}`, length)
 
 /** The live channels: private for cameras, sensors and commands; public for the read-only view */
 export function channels(id: string) {

@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { create } from 'zustand'
 import { logCommand, recommend, sendTelegramAlert } from '@/ai/client'
 import { setRelay } from '@/relay/webSerial'
-import { AI_COOLDOWN_S, CO2_OUTDOOR_PPM, DEFAULT_RUNS, SENSOR_FRESH_MS, TICK_MS, VERIFY_WINDOW_MS, WASTE_MIN_W } from '@/shared/config'
+import { AI_COOLDOWN_S, DEFAULT_RUNS, TICK_MS, VERIFY_WINDOW_MS } from '@/shared/config'
 import { getRoom, getSite, syncSiteFromServer, useSite } from '@/shared/site'
 import { every } from '@/shared/timer'
 import { apiFetch, online } from '@/shared/workspace'
@@ -25,9 +25,8 @@ import type {
   TwinEvent,
 } from '@/shared/types'
 import { compareScenario } from '@/sim/engine'
-import { stepCo2 } from './co2'
-import { co2KgFrom, costFrom, kwhFrom, roomWatts } from './energy'
-import { mergeReadings } from './merge'
+import { applySensor, computeRoom, dropManual, initialRoomState, type SensorState } from './compute'
+import { costFrom, kwhFrom } from './energy'
 import { on, send } from './realtime'
 import { alertTypesFor, factsFor, type RuleContext } from './rules'
 import { recordUsage } from './usage'
@@ -40,21 +39,6 @@ interface Override {
   wattsAtCommand: number
   commandId: string
   ts: number
-}
-
-interface Observed {
-  on: boolean
-  ts: number
-  source: string
-}
-
-/** Latest non-camera inputs per room */
-interface SensorState {
-  occupancy?: { value: number; ts: number }
-  power?: { watts: number; ts: number }
-  air?: { co2ppm?: number; temperatureC?: number; humidity?: number; ts: number }
-  byId: Record<string, Observed>
-  byType: Partial<Record<DeviceType, Observed>>
 }
 
 export interface TwinState {
@@ -126,33 +110,15 @@ const validSensor = (r: SensorReading) =>
   (r.co2ppm === undefined || (Number.isFinite(r.co2ppm) && r.co2ppm > 0 && r.co2ppm < 10_000)) &&
   (r.devices === undefined || Array.isArray(r.devices))
 
-function initialState(room: Room, now: number): RoomState {
-  return {
-    roomId: room.id,
-    headcount: 0,
-    occupancyKnown: false,
-    occupied: false,
-    emptySince: null,
-    deviceOn: {},
-    watts: 0,
-    metered: false,
-    co2ppm: CO2_OUTDOOR_PPM,
-    co2Measured: false,
-    status: 'unknown',
-    sources: [],
-    zones: {},
-    kwh: 0,
-    cost: 0,
-    co2Kg: 0,
-    wasteCost: 0,
-    updatedAt: now,
-  }
-}
-
 const event = (kind: TwinEvent['kind'], roomId: string | null, text: string): TwinEvent => ({ id: id(), ts: Date.now(), roomId, kind, text })
 
 /** Events waiting to be stored on the server (the audit trail); kept across failed uploads */
 let unsent: TwinEvent[] = []
+/**
+ * True while the server's minute tick runs (/api/status). The server is then the one sender of Telegram alerts
+ * and automatic switch-offs, and it stores the alerts it raises, so this browser does neither: no duplicates.
+ */
+let serverTick = false
 
 export const useTwin = create<TwinState>((set, get) => {
   const log = (e: TwinEvent) => {
@@ -162,7 +128,9 @@ export const useTwin = create<TwinState>((set, get) => {
 
   async function flushEvents() {
     if (!online() || !unsent.length) return
+    if (serverTick) unsent = unsent.filter((e) => e.kind !== 'alert')
     const batch = unsent.slice(0, 200)
+    if (!batch.length) return
     try {
       const res = await apiFetch('/api/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ events: batch }) })
       if (res.ok) unsent = unsent.slice(batch.length)
@@ -173,76 +141,15 @@ export const useTwin = create<TwinState>((set, get) => {
 
   function nextRoom(room: Room, prev: RoomState, now: number, dt: number) {
     const s = get()
-    const site = getSite()
-    const view = mergeReadings(room, Object.values(s.readings), now)
-    const sensor = s.sensors[room.id]
-    const sources = new Set<RoomState['sources'][number]>()
-
-    let headcount = 0
-    let occupancyKnown = false
-    if (view) {
-      headcount = view.headcount
-      occupancyKnown = true
-      sources.add('camera')
-    } else if (sensor?.occupancy && now - sensor.occupancy.ts < SENSOR_FRESH_MS) {
-      headcount = sensor.occupancy.value
-      occupancyKnown = true
-      sources.add('sensor')
-    }
-
-    // Device states, most specific observation first.
-    const deviceOn: Record<string, boolean> = {}
-    const seenBy: Record<string, 'camera' | 'sensor' | 'manual'> = {}
-    for (const d of room.devices) {
-      const byId = sensor?.byId[d.id]
-      const camera = view && d.zone ? view.zones[d.zone] : undefined
-      const byType = sensor?.byType[d.type]
-      const pick = byId ?? (camera !== undefined ? { on: camera, source: 'camera' } : byType)
-      if (!pick) continue
-      deviceOn[d.id] = pick.on
-      seenBy[d.id] = pick.source === 'camera' ? 'camera' : pick.source === 'manual' ? 'manual' : 'sensor'
-      sources.add(seenBy[d.id])
-    }
-
-    const metered = Boolean(sensor?.power && now - sensor.power.ts < SENSOR_FRESH_MS)
-    const watts = metered ? sensor!.power!.watts : roomWatts(room, deviceOn)
-    const emptySince = !occupancyKnown || headcount > 0 ? null : (prev.emptySince ?? now)
-    const occupied = occupancyKnown && (headcount > 0 || (emptySince !== null && now - emptySince < site.emptyDelayS * 1000))
-    const status: RoomState['status'] = !occupancyKnown ? 'unknown' : occupied ? 'occupied' : watts > WASTE_MIN_W ? 'waste' : 'idle'
-
-    const air = sensor?.air && now - sensor.air.ts < SENSOR_FRESH_MS ? sensor.air : undefined
+    const next = computeRoom(room, prev, { readings: Object.values(s.readings), sensor: s.sensors[room.id] }, getSite(), now, dt)
     const override = s.overrides[room.id]
-    const kwh = kwhFrom(watts, dt)
-    const savedCost = override ? costFrom(kwhFrom(Math.max(0, override.wattsAtCommand - watts), dt)) : 0
-
-    const next: RoomState = {
-      roomId: room.id,
-      headcount,
-      occupancyKnown,
-      occupied,
-      emptySince,
-      deviceOn,
-      watts,
-      metered,
-      co2ppm: air?.co2ppm ?? (occupancyKnown ? stepCo2(prev.co2ppm, headcount, room.volumeM3, dt) : prev.co2ppm),
-      co2Measured: air?.co2ppm !== undefined,
-      temperatureC: air?.temperatureC,
-      humidity: air?.humidity,
-      status,
-      sources: [...sources],
-      zones: view?.zones ?? {},
-      kwh: prev.kwh + kwh,
-      cost: prev.cost + costFrom(kwh),
-      co2Kg: prev.co2Kg + co2KgFrom(kwh),
-      wasteCost: prev.wasteCost + (status === 'waste' ? costFrom(kwh) : 0),
-      updatedAt: now,
-    }
-    return { next, savedCost, seenBy }
+    const savedCost = override ? costFrom(kwhFrom(Math.max(0, override.wattsAtCommand - next.watts), dt)) : 0
+    return { next, savedCost }
   }
 
   async function onNewAlert(alert: Alert) {
     log(event('alert', alert.roomId, `${alert.roomId}: ${alert.type.replaceAll('_', ' ')}`))
-    if (alert.type === 'empty_with_load' && Date.now() - (lastTelegram.get(alert.roomId) ?? 0) > TELEGRAM_COOLDOWN_MS) {
+    if (alert.type === 'empty_with_load' && !serverTick && Date.now() - (lastTelegram.get(alert.roomId) ?? 0) > TELEGRAM_COOLDOWN_MS) {
       lastTelegram.set(alert.roomId, Date.now())
       void sendTelegramAlert(alert.facts, id())
     }
@@ -272,22 +179,16 @@ export const useTwin = create<TwinState>((set, get) => {
     const sensors = { ...s.sensors }
 
     for (const room of site.rooms) {
-      const prev = s.rooms[room.id] ?? initialState(room, now)
-      const { next, savedCost, seenBy } = nextRoom(room, prev, now, dt)
+      const prev = s.rooms[room.id] ?? initialRoomState(room, now)
+      const { next, savedCost } = nextRoom(room, prev, now, dt)
+      const seenBy = next.deviceSource ?? {}
       rooms[room.id] = next
       saved += savedCost
       if (prev.status !== next.status && s.rooms[room.id]) log(event('status', room.id, `${room.id} is now ${next.status}`))
 
       // People are back: they switch things on again, so drop staff reports and release the hold.
       if (next.headcount > 0 && prev.headcount === 0) {
-        const sn = sensors[room.id]
-        if (sn) {
-          sensors[room.id] = {
-            ...sn,
-            byId: Object.fromEntries(Object.entries(sn.byId).filter(([, o]) => o.source !== 'manual')),
-            byType: Object.fromEntries(Object.entries(sn.byType).filter(([, o]) => o?.source !== 'manual')),
-          }
-        }
+        if (sensors[room.id]) sensors[room.id] = dropManual(sensors[room.id])
       }
       const o = overrides[room.id]
       if (o && next.headcount > 0) {
@@ -295,7 +196,8 @@ export const useTwin = create<TwinState>((set, get) => {
         if (room.hasRealRelay) void setRelay(true)
       } else if (o && !acks[o.commandId]?.verifiedBy) {
         // Confirmed once every observed target device is seen off.
-        const targeted = room.devices.filter((d) => o.targets.includes(d.type) && next.deviceOn[d.id] !== undefined)
+        // Inferred devices follow the seen ones, so only devices someone or something saw count.
+        const targeted = room.devices.filter((d) => o.targets.includes(d.type) && next.deviceOn[d.id] !== undefined && seenBy[d.id] !== 'inferred')
         if (targeted.length && targeted.every((d) => !next.deviceOn[d.id])) {
           // Credit whoever actually saw the targeted devices go off.
           const by = targeted.some((d) => seenBy[d.id] === 'camera') ? 'camera' : targeted.some((d) => seenBy[d.id] === 'sensor') ? 'sensor' : 'manual'
@@ -313,6 +215,7 @@ export const useTwin = create<TwinState>((set, get) => {
       now,
       minuteOfDay: minuteOfDay(now),
       currency: site.currency,
+      tariffPerKwh: site.tariffPerKwh,
       cloudCover: s.cloudCover,
       outdoorTempC: s.outdoorTempC,
       autoOffSaving: s.autoOffSaving,
@@ -340,7 +243,7 @@ export const useTwin = create<TwinState>((set, get) => {
     // Auto switch-off (Setup): a watched room empty with power on for the set minutes gets the command once,
     // until people come back. The saving still counts only when the devices are seen off.
     // Sent after this tick saves its state (below), so the new hold is not overwritten.
-    const autoOff = site.autoOff.enabled
+    const autoOff = site.autoOff.enabled && !serverTick
       ? Object.values(rooms).filter(
           (r) => r.status === 'waste' && !overrides[r.roomId] && !getRoom(r.roomId)?.autoOffExempt && r.emptySince !== null && now - r.emptySince >= site.emptyDelayS * 1000 + site.autoOff.minutes * 60_000,
         )
@@ -387,6 +290,36 @@ export const useTwin = create<TwinState>((set, get) => {
       set({ cloudCover: w.current?.cloud_cover ?? null, outdoorTempC: w.current?.temperature_2m ?? null, outdoorAqi: a.current?.us_aqi ?? null })
     } catch {
       // Offline: daylight advice assumes a clear sky; ventilation advice assumes outdoor air is fine.
+    }
+  }
+
+  async function checkServerTick() {
+    if (!online()) return
+    try {
+      serverTick = (await (await fetch('/api/status')).json()).serverTick === true
+    } catch {
+      serverTick = false
+    }
+  }
+
+  /** Start from the server's last state (T2): energy so far, and sensor readings still fresh */
+  async function loadServerState() {
+    if (!online()) return
+    try {
+      const res = await apiFetch('/api/state')
+      if (!res.ok) return
+      const body = (await res.json()) as { state: { rooms: Record<string, RoomState>; savedCost?: number } | null; sensors: Record<string, SensorState> }
+      const known = new Set(getSite().rooms.map((r) => r.id))
+      set((s) => {
+        const sensors = { ...s.sensors }
+        // What the server knows from sensors, for rooms this browser has heard nothing from yet.
+        for (const [id, sn] of Object.entries(body.sensors ?? {})) if (known.has(id) && !sensors[id] && typeof sn?.byId === 'object' && typeof sn?.byType === 'object') sensors[id] = sn
+        const rooms = { ...s.rooms }
+        for (const [id, r] of Object.entries(body.state?.rooms ?? {})) if (known.has(id) && (s.rooms[id]?.kwh ?? 0) <= r.kwh) rooms[id] = r
+        return { sensors, rooms, savedCost: Math.max(s.savedCost, body.state?.savedCost ?? 0) }
+      })
+    } catch {
+      // Offline: the twin starts from its inputs as before.
     }
   }
 
@@ -448,6 +381,9 @@ export const useTwin = create<TwinState>((set, get) => {
       })
       setTimeout(estimateSavings, 300)
       void loadOutdoor()
+      void loadServerState()
+      void checkServerTick()
+      setInterval(() => void checkServerTick(), 5 * 60_000)
       setInterval(() => void flushEvents(), 30_000)
       setInterval(() => void loadOutdoor(), 30 * 60_000) // weather moves slowly; Open-Meteo updates about every 15 minutes
       tick()
@@ -462,26 +398,15 @@ export const useTwin = create<TwinState>((set, get) => {
 
     ingestSensor(r) {
       if (!getRoom(r.roomId)) return
-      set((s) => {
-        const prev = s.sensors[r.roomId] ?? { byId: {}, byType: {} }
-        const next: SensorState = { ...prev, byId: { ...prev.byId }, byType: { ...prev.byType } }
-        if (r.occupancy !== undefined) next.occupancy = { value: r.occupancy, ts: r.ts }
-        if (r.powerW !== undefined) next.power = { watts: r.powerW, ts: r.ts }
-        if (r.co2ppm !== undefined || r.temperatureC !== undefined || r.humidity !== undefined)
-          next.air = { ...next.air, ...(r.co2ppm !== undefined && { co2ppm: r.co2ppm }), ...(r.temperatureC !== undefined && { temperatureC: r.temperatureC }), ...(r.humidity !== undefined && { humidity: r.humidity }), ts: r.ts }
-        for (const d of r.devices ?? []) {
-          const obs = { on: d.on, ts: r.ts, source: r.source }
-          if (d.id) next.byId[d.id] = obs
-          else if (d.type) next.byType[d.type] = obs
-        }
-        return { sensors: { ...s.sensors, [r.roomId]: next } }
-      })
+      set((s) => ({ sensors: { ...s.sensors, [r.roomId]: applySensor(s.sensors[r.roomId], r) } }))
     },
 
     reportDevices(roomId, target, isOn) {
       const reading: SensorReading = { roomId, source: 'manual', ts: Date.now(), devices: TARGET_TYPES[target].map((type) => ({ type, on: isOn })) }
       get().ingestSensor(reading)
       send('sensor', reading)
+      // The server's tick counts staff reports too, so a report holds when no browser is open.
+      if (online()) void apiFetch('/api/reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ readings: [], sensors: [reading] }) }).catch(() => undefined)
       log(event('status', roomId, `${roomId}: staff reported ${target} ${isOn ? 'on' : 'off'}`))
     },
 

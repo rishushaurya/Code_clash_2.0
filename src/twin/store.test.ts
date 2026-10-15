@@ -147,4 +147,11 @@ describe('twin loop', () => {
     expect(off).toMatchObject({ co2ppm: 1180, co2Measured: true, temperatureC: 26.5, humidity: 61 })
     expect(useTwin.getState().alerts.some((a) => a.roomId === 'OFF-1' && a.type === 'co2_high' && a.facts.co2ppm === 1180)).toBe(true)
   })
+
+  it('records measured CO2 in the history the report reads, also for a room with no occupancy input (A5)', async () => {
+    useTwin.getState().ingestSensor({ roomId: 'LAB-1', source: 'airthings', ts: Date.now(), co2ppm: 1250 })
+    await vi.advanceTimersByTimeAsync(TICK_MS * 2)
+    expect(useTwin.getState().rooms['LAB-1']).toMatchObject({ occupancyKnown: false, co2Measured: true })
+    expect(useTwin.getState().co2History['LAB-1']?.at(-1)).toBe(1250)
+  })
 })

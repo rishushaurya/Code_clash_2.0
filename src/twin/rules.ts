@@ -1,6 +1,8 @@
 // Rules turn twin state into alerts, and alerts into the facts pack the AI is allowed to quote.
 
-import { CO2_ALERT_PPM, DAYLIGHT_FROM_MIN, DAYLIGHT_TO_MIN } from '@/shared/config'
+// Pure, with relative imports: the server's minute tick raises the same alerts as the browser.
+
+import { CO2_ALERT_PPM, DAYLIGHT_FROM_MIN, DAYLIGHT_TO_MIN } from '../shared/config.js'
 
 /** BEE (India) default setting for star-labelled room ACs since January 2020 */
 export const AC_DEFAULT_C = 24
@@ -8,14 +10,16 @@ export const AC_DEFAULT_C = 24
 export const AC_SAVING_PER_DEGREE = 0.06
 /** A room measured this far below 24 C with ACs on is being overcooled */
 const OVERCOOL_MARGIN_C = 1
-import type { AlertType, DeviceType, FactsPack, Room, RoomState } from '@/shared/types'
-import { costPerHour, round } from './energy'
+import type { AlertType, DeviceType, FactsPack, Room, RoomState } from '../shared/types'
+import { kwhFrom, round } from './compute.js'
 
 export interface RuleContext {
   now: number
   /** Real local minute of the day */
   minuteOfDay: number
   currency: string
+  /** The site's tariff per kWh, for the cost per hour in the facts */
+  tariffPerKwh: number
   /** Open-Meteo cloud cover in percent; null when offline */
   cloudCover: number | null
   /** Open-Meteo outdoor temperature; null when offline or no location */
@@ -68,7 +72,7 @@ export function factsFor(room: Room, s: RoomState, type: AlertType, ctx: RuleCon
     alertType: type,
     devicesOn: devicesOnSummary(room, s),
     wattsNow: round(s.watts, 0),
-    costPerHourNow: round(costPerHour(s.watts)),
+    costPerHourNow: round(kwhFrom(s.watts, 3600) * ctx.tariffPerKwh),
     kwhToday: round(s.kwh),
     costToday: round(s.cost),
     co2KgToday: round(s.co2Kg),

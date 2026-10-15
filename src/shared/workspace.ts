@@ -17,6 +17,8 @@ export interface Session {
   /** Lets the public view send a visitor's tip through the server */
   publicKey: string
   mode: 'server' | 'local'
+  /** What this session may do (server workspaces); sessions from before roles are the owner's */
+  role?: 'owner' | 'manager' | 'viewer'
 }
 
 const SESSION_KEY = 'pratibimb:session'
@@ -51,6 +53,9 @@ export const PUBLIC_LINK = publicFromLink()
 export const CHANNEL = SESSION?.channel ?? null
 export const PUBLIC_CHANNEL = PUBLIC_LINK?.publicChannel ?? SESSION?.publicChannel ?? null
 export const online = () => SESSION?.mode === 'server'
+/** Owner: everything. Manager: site, cameras, devices, commands. Viewer: reads only. A local workspace is its owner's. */
+export const role = () => SESSION?.role ?? 'owner'
+export const can = (min: 'manager' | 'owner') => (min === 'owner' ? role() === 'owner' : role() !== 'viewer')
 
 /** A storage key of this workspace, so two workspaces on one device never mix */
 export const ns = (key: string) => `${key}:${SESSION?.id ?? 'none'}`
@@ -114,6 +119,35 @@ export function readJoinLink(hash: string): { session: Session; next: string } |
     return isSession(session) && /^\/[a-zA-Z0-9/_-]*$/.test(next) ? { session, next } : null
   } catch {
     return null
+  }
+}
+
+/**
+ * An invite link for a role (owner only): whoever opens it before it expires signs in with that role, with a
+ * session of their own the owner can sign out in Team and access. Returns the link, or the error to show.
+ */
+export async function createInviteLink(role: 'owner' | 'manager' | 'viewer', days = 7, next = '/'): Promise<{ link: string; expiresAt: number } | string> {
+  const res = await apiFetch('/api/workspace/invite', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role, days }) })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) return body.error ?? 'Could not create the invite'
+  return { link: `${location.origin}/join#i=${encodeURIComponent(body.invite)}&next=${encodeURIComponent(next)}`, expiresAt: body.expiresAt }
+}
+
+export function readInviteLink(hash: string): { invite: string; next: string } | null {
+  const p = new URLSearchParams(hash.slice(1))
+  const invite = p.get('i') ?? ''
+  const next = p.get('next') ?? '/'
+  return /^[a-z0-9-]{3,32}\.(owner|manager|viewer)\.\d+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(invite) && /^\/[a-zA-Z0-9/_-]*$/.test(next) ? { invite, next } : null
+}
+
+/** Turns an invite into this device's session; returns the session or the error to show */
+export async function acceptInvite(invite: string): Promise<Session | string> {
+  try {
+    const res = await fetch('/api/workspace', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'join', invite }) })
+    const body = await res.json()
+    return res.ok ? { ...body, mode: 'server' } : (body.error ?? 'This invite link does not work')
+  } catch {
+    return 'The server is not reachable. Try again.'
   }
 }
 

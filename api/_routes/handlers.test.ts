@@ -71,7 +71,8 @@ describe('/api/workspace', () => {
     const res = await call('workspace', { mode: 'create', name: 'Acme HQ', password: 'correct horse' })
     const s = await res.json()
     expect(s).toMatchObject({ id: 'acme-hq', name: 'Acme HQ', ...channels('acme-hq') })
-    const stored = bodyOf(fetchMock)
+    expect(s.role).toBe('owner')
+    const stored = JSON.parse(fetchMock.mock.calls.find(([u]) => String(u).endsWith('/rest/v1/workspaces'))![1].body)
     expect(stored.password_hash).toMatch(/^scrypt\$/)
     expect(JSON.stringify(stored)).not.toContain('correct horse')
     // The session works on private endpoints.
@@ -256,17 +257,17 @@ describe('/api/ai/transcribe', () => {
 describe('/api/command', () => {
   it('validates the command and keeps it in the caller\'s workspace', async () => {
     withStorage()
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('{}'))
     vi.stubGlobal('fetch', fetchMock)
     expect((await call('command', { ...cmd, target: 'building' }, auth())).status).toBe(400)
-    expect(await (await call('command', cmd, auth())).json()).toEqual({ ok: true, broadcasted: true, forwarded: false })
+    expect(await (await call('command', cmd, auth())).json()).toEqual({ ok: true, broadcasted: true, forwarded: false, devices: 0 })
     expect(bodyOf(fetchMock).messages[0]).toMatchObject({ topic: channels('acme').channel, event: 'command' })
   })
 
   it('signs forwarded commands so the receiver can verify them', async () => {
     vi.stubEnv('COMMAND_WEBHOOK_URL', 'https://ha.example/api/webhook/pratibimb')
     vi.stubEnv('COMMAND_WEBHOOK_SECRET', 'shh')
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('{}'))
     vi.stubGlobal('fetch', fetchMock)
     expect(await (await call('command', cmd, auth())).json()).toMatchObject({ forwarded: true })
     const [, init] = fetchMock.mock.calls.find(([u]) => String(u).startsWith('https://ha.example'))!
@@ -280,7 +281,7 @@ describe('/api/alert', () => {
     withStorage()
     vi.stubEnv('TELEGRAM_BOT_TOKEN', 'bot')
     const fetchMock = vi.fn().mockImplementation(async (url: string) =>
-      String(url).includes('/rest/v1/sites') ? new Response(JSON.stringify([{ site: { telegramChatId: '-1001' }, updated_at: 'x' }])) : new Response('{}'),
+      String(url).includes('/rest/v1/sites') ? new Response(JSON.stringify([{ site: { telegramChatId: '-1001' }, updated_at: 'x' }])) : new Response('{"ok":true}'),
     )
     vi.stubGlobal('fetch', fetchMock)
     expect((await call('alert', { facts }, auth())).status).toBe(200)
@@ -294,7 +295,7 @@ describe('/api/alert', () => {
   it('refuses when the workspace chose no chat', async () => {
     withStorage()
     vi.stubEnv('TELEGRAM_BOT_TOKEN', 'bot')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([]))))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify([]))))
     expect((await call('alert', { facts }, auth())).status).toBe(503)
   })
 })
@@ -302,13 +303,16 @@ describe('/api/alert', () => {
 describe('/api/ingest', () => {
   it('needs the workspace\'s sensor key and forwards valid readings to that workspace only', async () => {
     withStorage()
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(String(url).includes('/rest/v1/room_inputs?') ? '[]' : '{}'))
     vi.stubGlobal('fetch', fetchMock)
     const readings = { readings: [{ roomId: 'CR-101', source: 'shelly', occupancy: 0, devices: [{ type: 'light', on: true }], powerW: 240 }] }
     expect((await call('ingest', readings, { 'x-api-key': 'acme.guess' })).status).toBe(401)
     expect((await call('ingest', { readings: [{ roomId: 'CR-101', source: 'x', devices: [{ on: true }] }] }, { 'x-api-key': ingestKey('acme') })).status).toBe(400)
-    expect(await (await call('ingest', readings, { 'x-api-key': ingestKey('acme') })).json()).toEqual({ ok: true, received: 1, delivered: 1 })
-    expect(bodyOf(fetchMock).messages[0]).toMatchObject({ topic: channels('acme').channel, event: 'sensor', payload: { roomId: 'CR-101', powerW: 240 } })
+    expect(await (await call('ingest', readings, { 'x-api-key': ingestKey('acme') })).json()).toEqual({ ok: true, received: 1, delivered: 1, stored: true })
+    // Stored for the server's tick, one row per room, under the workspace
+    const stored = JSON.parse(fetchMock.mock.calls.find(([u, init]) => String(u).includes('/rest/v1/room_inputs') && init?.method === 'POST')![1].body)
+    expect(stored).toMatchObject([{ workspace: 'acme', key: 'sensor:CR-101', kind: 'sensor', reading: { power: { watts: 240 }, byType: { light: { on: true, source: 'shelly' } } } }])
+    expect(JSON.parse(fetchMock.mock.calls.find(([u]) => String(u).includes('/realtime/'))![1].body).messages[0]).toMatchObject({ topic: channels('acme').channel, event: 'sensor', payload: { roomId: 'CR-101', powerW: 240 } })
   })
 })
 
@@ -406,7 +410,11 @@ describe('/api/digest', () => {
     vi.stubEnv('CRON_SECRET', 'cron-secret-123456')
     vi.stubEnv('TELEGRAM_BOT_TOKEN', 'bot')
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/rest/v1/sites')) return new Response(JSON.stringify([{ id: 'acme', chat: '11' }, { id: 'beta', chat: '22' }]))
+      if (url.includes('/rest/v1/sites?or=')) return new Response(JSON.stringify([{ id: 'acme' }, { id: 'beta/telegram' }]))
+      if (url.includes('id=eq.acme&')) return new Response(JSON.stringify([{ site: { telegramChatId: '11' }, updated_at: 'x' }]))
+      if (url.includes('id=eq.beta%2Ftelegram')) return new Response(JSON.stringify([{ site: { chatId: '22' }, updated_at: 'x' }]))
+      if (url.includes('/rest/v1/sites') || url.includes('/rest/v1/secrets')) return new Response('[]')
+      if (url.includes('sendMessage')) return new Response('{"ok":true}')
       if (url.includes('/rest/v1/events')) return new Response(JSON.stringify([]))
       return new Response('{}')
     })
@@ -467,7 +475,7 @@ describe('/api/telegram', () => {
     vi.stubEnv('TELEGRAM_BOT_TOKEN', 'bot')
     withStorage()
     const fetchMock = vi.fn().mockImplementation(async (url: string) =>
-      String(url).includes('/rest/v1/sites') ? new Response(JSON.stringify([{ site: { telegramChatId: '-1001' }, updated_at: 'x' }])) : new Response('{}'),
+      String(url).includes('/rest/v1/sites') ? new Response(JSON.stringify([{ site: { telegramChatId: '-1001' }, updated_at: 'x' }])) : new Response('{"ok":true}'),
     )
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock

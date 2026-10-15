@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import { recentEvents, table } from '../_lib/db.js'
-import { json, readBody, requireWorkspace, storageError } from '../_lib/http.js'
+import { json, readBody, requireRole, storageError } from '../_lib/http.js'
 
 const db = () => table('events')
 
@@ -17,8 +17,9 @@ const EventSchema = z.object({
 })
 
 export async function POST(req: Request) {
-  const id = requireWorkspace(req)
-  if (id instanceof Response) return id
+  const c = await requireRole(req, 'manager')
+  if (c instanceof Response) return c
+  const id = c.id
   const d = db()
   if (!d) return json({ error: 'Server storage is not configured' }, 503)
   const body = await readBody(req, z.object({ events: z.array(EventSchema).min(1).max(200) }), 100_000)
@@ -29,8 +30,9 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const id = requireWorkspace(req)
-  if (id instanceof Response) return id
+  const c = await requireRole(req)
+  if (c instanceof Response) return c
+  const id = c.id
   if (!db()) return json({ error: 'Server storage is not configured' }, 503)
   const days = Math.min(365, Math.max(1, Number(new URL(req.url).searchParams.get('days')) || 30))
   const rows = await recentEvents(id, days)

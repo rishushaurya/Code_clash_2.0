@@ -46,9 +46,37 @@ export function supabase() {
   return { url, headers }
 }
 
-export function table(name: 'events' | 'sites' | 'workspaces') {
+export type TableName = 'events' | 'sites' | 'workspaces' | 'room_inputs' | 'twin_state' | 'room_hourly' | 'secrets' | 'settings_log' | 'sessions'
+
+export function table(name: TableName) {
   const sb = supabase()
   return sb ? { url: `${sb.url}/rest/v1/${name}`, headers: sb.headers } : null
+}
+
+/**
+ * One PostgREST call: `rest('room_inputs?workspace=eq.acme')`. Null when storage is not configured or not
+ * reachable, so callers decide what a missing answer means.
+ */
+export async function rest(path: string, init: RequestInit = {}): Promise<Response | null> {
+  const sb = supabase()
+  if (!sb) return null
+  return fetch(`${sb.url}/rest/v1/${path}`, { ...init, headers: { ...sb.headers, ...(init.headers as Record<string, string>) }, signal: init.signal ?? AbortSignal.timeout(8000) }).catch(() => null)
+}
+
+/** Rows of a GET, or null when storage is missing or failing */
+export async function rows<T>(path: string): Promise<T[] | null> {
+  const res = await rest(path)
+  const body = res?.ok ? await res.json().catch(() => null) : null
+  return Array.isArray(body) ? (body as T[]) : null
+}
+
+/** Insert or replace rows (upsert on the primary key) */
+export const upsert = (name: TableName, body: unknown, onConflict?: string) =>
+  rest(`${name}${onConflict ? `?on_conflict=${onConflict}` : ''}`, { method: 'POST', headers: { prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(body) })
+
+/** Who changed which setting, and when; never a key's value */
+export async function settingsLog(workspace: string, action: string, detail: Record<string, unknown> = {}) {
+  await rest('settings_log', { method: 'POST', headers: { prefer: 'return=minimal' }, body: JSON.stringify({ workspace, action, detail }) })
 }
 
 export interface EventRow {
@@ -67,20 +95,25 @@ export async function recentEvents(workspace: string, days: number): Promise<Eve
   return res.ok ? ((await res.json()) as EventRow[]) : null
 }
 
-/** A stored JSON document of a workspace: its site ("site") or its camera settings ("cameras") */
-export const docId = (workspace: string, doc: 'site' | 'cameras') => (doc === 'site' ? workspace : `${workspace}/cameras`)
+/**
+ * A stored JSON document of a workspace: its site ("site"), camera settings ("cameras"), AI choices ("ai"),
+ * device connections ("connections") or linked Telegram chat ("telegram")
+ */
+export type Doc = 'site' | 'cameras' | 'ai' | 'connections' | 'telegram'
+export const docId = (workspace: string, doc: Doc) => (doc === 'site' ? workspace : `${workspace}/${doc}`)
 
-export async function readDoc(workspace: string, doc: 'site' | 'cameras'): Promise<{ value: unknown; updatedAt: string } | null | 'unavailable'> {
+export async function readDoc(workspace: string, doc: Doc): Promise<{ value: unknown; updatedAt: string } | null | 'unavailable'> {
   const d = table('sites')
   if (!d) return 'unavailable'
   const res = await fetch(`${d.url}?id=eq.${encodeURIComponent(docId(workspace, doc))}&select=site,updated_at`, { headers: d.headers }).catch(() => null)
   if (!res?.ok) return 'unavailable'
-  const rows = (await res.json()) as { site: unknown; updated_at: string }[]
-  return rows[0] ? { value: rows[0].site, updatedAt: rows[0].updated_at } : null
+  const rows = (await res.json().catch(() => null)) as { site: unknown; updated_at: string }[] | null
+  if (!Array.isArray(rows)) return 'unavailable'
+  return rows[0] ? { value: rows[0].site ?? null, updatedAt: rows[0].updated_at } : null
 }
 
 /** Saves the document; returns Supabase's response (or the network error) for the caller to judge */
-export async function writeDoc(workspace: string, doc: 'site' | 'cameras', value: unknown): Promise<Response | Error> {
+export async function writeDoc(workspace: string, doc: Doc, value: unknown): Promise<Response | Error> {
   const d = table('sites')
   if (!d) return new Error('Server storage is not configured')
   return fetch(d.url, {
@@ -90,9 +123,12 @@ export async function writeDoc(workspace: string, doc: 'site' | 'cameras', value
   }).catch((e: Error) => e)
 }
 
-/** The Telegram chat a workspace chose in Setup, from its stored site */
+/** The Telegram chat linked to a workspace: the one that first wrote to its bot, else the one chosen in Setup */
 export async function telegramChat(workspace: string): Promise<string | null> {
+  const valid = (c: unknown) => (typeof c === 'string' && /^-?\d{1,20}$/.test(c) ? c : null)
+  const linked = await readDoc(workspace, 'telegram')
+  const chat = linked && linked !== 'unavailable' ? valid((linked.value as { chatId?: unknown } | null)?.chatId) : null
+  if (chat) return chat
   const doc = await readDoc(workspace, 'site')
-  const chat = doc && doc !== 'unavailable' ? (doc.value as { telegramChatId?: unknown }).telegramChatId : null
-  return typeof chat === 'string' && /^-?\d{1,20}$/.test(chat) ? chat : null
+  return doc && doc !== 'unavailable' ? valid((doc.value as { telegramChatId?: unknown } | null)?.telegramChatId) : null
 }
