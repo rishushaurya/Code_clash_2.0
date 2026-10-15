@@ -23,12 +23,16 @@ When Pratibimb is sold to customers, move Vercel to Pro (commercial use) or anot
 | `WORKSPACE_SECRET` | You generate it (step 3) | Signs workspace sessions; derives channel names and sensor keys. **Secret.** |
 | `GROQ_API_KEY` | console.groq.com, API Keys | AI recommendations, reports, Copilot, Set up with AI, and voice (Whisper speech-to-text) |
 | `GEMINI_API_KEY` | aistudio.google.com, Get API key, then **Copy key** (it starts with `AQ.` or `AIza`) | AI fallback and the AI Surveyor (photo to device list) |
-| `TELEGRAM_BOT_TOKEN` | Telegram, @BotFather, /newbot | Alerts and the weekly digest |
-| `TELEGRAM_WEBHOOK_SECRET` | You generate it | Lets only Telegram call `/api/telegram` |
-| `CRON_SECRET` | You generate it | Lets only Vercel Cron call `/api/digest` |
-| `COMMAND_WEBHOOK_URL`, `COMMAND_WEBHOOK_SECRET` | Optional: your Home Assistant or control system | Switch-off commands to real equipment (docs/INTEGRATIONS.md) |
+| `TELEGRAM_BOT_TOKEN` | Optional. Telegram, @BotFather, /newbot | A bot for workspaces that do not connect their own |
+| `TELEGRAM_WEBHOOK_SECRET` | You generate it | Lets only Telegram call `/api/telegram` for that bot |
+| `CRON_SECRET` | You generate it | Lets only Supabase call `/api/tick` (every minute) and Vercel Cron call `/api/digest` |
+| `PUBLIC_URL` | Your site's address, `https://<project>.vercel.app` | Where Telegram sends a workspace bot's messages; empty uses the request's address |
+| `DEPLOYMENT_AI_KEYS` | Set to `off` to keep customers off your own AI keys | Workspaces then use only the keys they bring |
+| `COMMAND_WEBHOOK_URL`, `COMMAND_WEBHOOK_SECRET` | Optional: your Home Assistant or control system | Switch-off commands to real equipment (docs/INTEGRATIONS.md); a workspace's own webhook replaces it |
 
-The minimum for the full product: the three Supabase keys, `WORKSPACE_SECRET`, and one AI key. Telegram and the command webhook can come later. Without any key, the app still runs on one computer (section 9).
+The minimum for the full product: the three Supabase keys, `WORKSPACE_SECRET` and `CRON_SECRET`. AI, Telegram, smart plug and Home Assistant keys can be the deployment's (above) or each workspace's own, added in Settings, Keys and AI. Without any key, the app still runs on one computer (section 9).
+
+**Keys customers bring** are stored in the `secrets` table, encrypted with AES-256-GCM under a key derived from `WORKSPACE_SECRET` and the workspace id. The server never sends them back (only the last four characters) and never logs them; every change is written to `settings_log`. Changing `WORKSPACE_SECRET` makes them unreadable, so customers would enter them again. Server addresses customers type (an OpenAI-compatible AI server, Home Assistant, Shelly Cloud, a command webhook) must be public `https://` addresses; private network addresses are refused.
 
 ## 2. Push the code to GitHub
 
@@ -73,8 +77,67 @@ Changing `WORKSPACE_SECRET` later signs everyone out and changes every sensor ke
 ## 4. Supabase
 
 1. supabase.com, New project. Pick the region closest to your buildings and a strong database password.
-2. SQL Editor, New query, paste all of [`supabase/schema.sql`](../supabase/schema.sql), Run. It creates `workspaces`, `sites` and `events`, all with row-level security on and no public access.
+2. SQL Editor, New query, paste all of [`supabase/schema.sql`](../supabase/schema.sql), Run. It creates `workspaces`, `sites`, `events`, `room_inputs`, `twin_state`, `room_hourly`, `secrets` and `settings_log`, all with row-level security on and no public access. Then run the SQL in section 4a.
 3. Project Settings, Data API: copy the Project URL. Project Settings, API Keys: copy the publishable key and the secret key (press the eye icon, then copy). The legacy `anon` and `service_role` keys also work, but Supabase is retiring them.
+
+## 4a. Sessions, roles and shared rate limits
+
+Run this too, in a new query (safe to run again). Until it runs, sign-in still works, but sessions cannot be listed or signed out, and rate limits count per server instance only.
+
+```sql
+-- Signed-in sessions, so an owner can list them and sign them out; the token names its row.
+create table if not exists public.sessions (
+  id uuid primary key,
+  workspace text not null,
+  role text not null check (role in ('owner', 'manager', 'viewer')),
+  label text,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+create index if not exists sessions_ws_idx on public.sessions (workspace);
+alter table public.sessions enable row level security;
+
+-- Rate limits shared by every server instance. The key is a keyed hash of route and address, never the address.
+create table if not exists public.rate_limits (
+  key text primary key,
+  window_start timestamptz not null default now(),
+  hits integer not null default 0
+);
+alter table public.rate_limits enable row level security;
+
+create or replace function public.rate_hit(p_key text, p_window_s integer)
+returns integer language sql as $$
+  insert into public.rate_limits as r (key, window_start, hits) values (p_key, now(), 1)
+  on conflict (key) do update set
+    hits = case when r.window_start < now() - make_interval(secs => p_window_s) then 1 else r.hits + 1 end,
+    window_start = case when r.window_start < now() - make_interval(secs => p_window_s) then now() else r.window_start end
+  returning hits;
+$$;
+revoke execute on function public.rate_hit(text, integer) from public, anon, authenticated;
+```
+
+## 4b. The twin around the clock
+
+The server works out every room once a minute, so alerts, Telegram, automatic switch-off and history continue when every browser is closed. Supabase calls `/api/tick` with `pg_cron` and `pg_net` (both on the free plan):
+
+1. Database, Extensions: turn on `pg_cron` and `pg_net`.
+2. SQL Editor: run this with your address and `CRON_SECRET` filled in.
+
+```sql
+select cron.schedule('pratibimb-tick', '* * * * *', $$
+  select net.http_post(
+    url := 'https://<project>.vercel.app/api/tick',
+    headers := jsonb_build_object('authorization', 'Bearer <CRON_SECRET>', 'content-type', 'application/json'),
+    body := '{}'::jsonb
+  );
+$$);
+```
+
+3. After a minute, `https://<project>.vercel.app/api/status` says `"serverTick": true`. From then on the server alone sends Telegram alerts and automatic switch-offs; open browsers stop sending their own, so nothing arrives twice.
+
+To stop it: `select cron.unschedule('pratibimb-tick');`
+
+The tick works on workspaces with an input in the last hour, or with Shelly Cloud or Home Assistant connected. Cameras post their latest reading every 10 seconds, and sensors post through `/api/ingest`, so the server always has the latest input of each room. A browser that opens later starts from the server's last state.
 
 ## 5. AI keys
 
@@ -96,7 +159,11 @@ Before deploying, you can test every key from your computer: put them in `.env` 
 
 ## 7. Telegram (optional)
 
-1. In Telegram, message @BotFather, send `/newbot`, follow the steps, copy the token into `TELEGRAM_BOT_TOKEN` on Vercel, and redeploy.
+**Each workspace's own bot (recommended).** In Telegram, message @BotFather, send `/newbot`, and copy the token. In Pratibimb, Settings, Keys and AI, paste it under Telegram and press **Connect**. The server sets the bot's webhook to `https://<project>.vercel.app/api/telegram?ws=<workspace>` with a secret only this server knows. Add the bot to your staff group (or open a chat with it) and send any message within 15 minutes: that chat is linked, and the bot says so. Alerts, the Switch off button and the weekly digest then use this bot. Set `PUBLIC_URL` if Connect says the address is not https.
+
+**The deployment's bot**, for workspaces without their own:
+
+1. Copy the bot token into `TELEGRAM_BOT_TOKEN` on Vercel, and redeploy.
 2. Register the webhook once (replace the three parts):
 
 ```bash
@@ -104,6 +171,20 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<project>.verce
 ```
 
 3. Add the bot to your staff group, send `/chatid` in the group, and paste the number it replies with into Pratibimb, Setup, Integrations, Telegram chat id. Save.
+
+## 7a. Team and access
+
+The workspace password is the owner's: whoever signs in with it is an **owner**. Others join through invite links the owner makes in Team and access, one per role.
+
+| Role | Can |
+| --- | --- |
+| Owner | Everything: keys, team, password, export and delete of the workspace |
+| Manager | Site, cameras, device connections, commands, readings |
+| Viewer | Look only |
+
+Each sign-in is a session the owner can see and sign out; a signed-out session stops working within 30 seconds. Changing the password signs out every other session. **Export** downloads everything the workspace stored as JSON (keys only as their last four characters). **Delete** removes every row the workspace owns, after the password is typed again.
+
+Sessions issued before roles existed keep working as owner until they expire (30 days at most).
 
 ## 8. First run, and checking every feature
 
@@ -149,4 +230,6 @@ Open `http://localhost:5173`. Without Supabase keys, the first page keeps the wo
 | Phone camera asks for permission every time | Use the `https://` address; browsers remember camera permission only on secure sites. |
 | AI cards say they came from a template | No AI key, the provider's free quota is used up for now, or the AI's answer failed the number check; the template is the safe fallback. |
 | Telegram stays quiet | The webhook was not registered, the chat id is not saved in Setup, or the bot is not in the group. |
+| Not sure what is wrong | Open Connections, Connection doctor (`/api/doctor`): it tests storage, the tick, every key, Telegram, plugs, Home Assistant and each camera now, and says what to fix. |
+| Alerts stop when the browser is closed | The minute tick is not scheduled, or `CRON_SECRET` differs between Vercel and the SQL in section 4b. `/api/status` shows `serverTick`. |
 | "Your session has ended" on the sign-in page | Sessions last 30 days, and changing `WORKSPACE_SECRET` ends all of them. The app signs the device out and says so; open the workspace again with its name and password. Nothing saved is lost. |

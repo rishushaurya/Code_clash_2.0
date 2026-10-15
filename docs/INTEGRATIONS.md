@@ -8,8 +8,10 @@ Pratibimb works with whatever a building already has. Four inputs and two output
 | In | Python edge worker (`edge/edge.py`) on a campus machine | The same, from CCTV over RTSP | Supabase anon key and the workspace's channel (Setup) |
 | In | `POST /api/ingest` | Occupancy, device states, metered power from any sensor or system | `x-api-key` = the workspace's sensor key (Setup) |
 | In | Staff report buttons on each room page | What a person sees in the room | Workspace session |
-| Out | Command webhook | Switch-off commands for your control system | HMAC signature with `COMMAND_WEBHOOK_SECRET` |
-| Out | Telegram bot | Alerts with a one-tap switch-off button, to the chat set in Setup | Bot token, webhook secret |
+| Both | Shelly Cloud (section 7) | Each plug's or relay's state and power, read every minute; switched off on a command | The workspace's Shelly Cloud key and server address |
+| Both | Home Assistant, read directly (section 3) | Lights, switches, fans, power sensors and motion sensors, read every minute; switched off on a command | The workspace's Home Assistant token and https address |
+| Out | Command webhook | Switch-off commands for your control system | HMAC signature with the workspace's webhook secret, or `COMMAND_WEBHOOK_SECRET` |
+| Out | Telegram bot | Alerts with a one-tap switch-off button, to the chat linked to the workspace | The workspace's own bot (Connect), or the deployment's |
 | Out | Weekly digest (`/api/digest`, Vercel Cron, Mondays) | A summary of each workspace's week to its Telegram chat | `CRON_SECRET` |
 | Both | `GET` / `PUT /api/site`, `/api/cameras` | The site file and the camera settings, shared by every device of a workspace | Workspace session (`Authorization: Bearer`) |
 | In | `POST /api/report` | A visitor on the public view says lights are left on; raises a check, changes nothing | The public view link's key, 5 per minute per address |
@@ -44,7 +46,7 @@ Each reading may carry any of:
 | `powerW` | Metered power for the whole room. When present it replaces the sum of device ratings |
 | `co2ppm`, `temperatureC`, `humidity` | From a room air sensor. Measured CO2 replaces the head-count estimate and drives the indoor-air advice |
 
-`$SENSOR_KEY` is the workspace's sensor key from Setup, Integrations. It names its workspace, so readings reach only that workspace. Up to 100 readings per request. The response says how many reached the live twin. Delivery needs the Supabase keys, because the twin runs in the operator's browser.
+`$SENSOR_KEY` is the workspace's sensor key from Setup, Integrations. It names its workspace, so readings reach only that workspace. Up to 100 readings per request. Readings go to the open twins at once and are stored as the room's latest sensor state, so the server's minute tick uses them with no browser open. The response says how many reached the live twin (`delivered`) and whether they were stored (`stored`).
 
 ## 3. Home Assistant
 
@@ -97,13 +99,30 @@ automation:
           area_id: "{{ trigger.json.roomId | lower }}"
 ```
 
-The webhook id works like a password; keep it long and random. Commands look like:
+The webhook id works like a password; keep it long and random. A workspace can set its own webhook (address and secret) in Settings, Keys and AI; it replaces the deployment's `COMMAND_WEBHOOK_URL` for that workspace. Commands look like:
 
 ```json
 { "id": "uuid", "ts": 1700000000000, "roomId": "CR-101", "target": "lights", "state": "off", "origin": "telegram", "workspace": "city-college" }
 ```
 
 `workspace` names the workspace that sent it, so one receiver can serve several workspaces of a shared deployment. A deployment that serves one customer can ignore it.
+
+### Or let Pratibimb read Home Assistant directly
+
+No automations needed. In Home Assistant, open your profile, Security, Long-lived access tokens, and create one. In Pratibimb, Settings, Keys and AI, add it under Home Assistant with your Home Assistant's public `https://` address (Home Assistant Cloud, or your own domain; a `homeassistant.local` or `192.168.x.x` address cannot be reached from the server). Then list which entities belong to which room in Devices and integrations (`PUT /api/connections`):
+
+```json
+{ "homeAssistant": [
+  { "roomId": "CR-101", "entityId": "light.cr101_lights", "target": "lights" },
+  { "roomId": "CR-101", "entityId": "switch.cr101_fans", "target": "fans" },
+  { "roomId": "CR-101", "entityId": "sensor.cr101_power" },
+  { "roomId": "CR-101", "entityId": "binary_sensor.cr101_motion" }
+] }
+```
+
+Every minute the server reads `/api/states` once: `light`, `switch`, `fan` and `input_boolean` entities give device states for their `target` (lights, fans or all), `sensor` entities give power in W or kW, and `binary_sensor` entities give occupancy (on is 1 person, off is 0). A switch-off command calls `light.turn_off`, `switch.turn_off`, `fan.turn_off` or `input_boolean.turn_off` for the room's matching entities.
+
+**Devices on the local network only** (Tasmota, Shelly in local mode, Zigbee, anything without a cloud): add them to Home Assistant, which reaches them, and connect Home Assistant as above.
 
 ## 4. Other control systems: verifying the command webhook
 
@@ -140,10 +159,42 @@ Calibrate the camera once in the browser (Cameras, add it with its WHEP address)
 
 ## 6. Telegram
 
-One bot serves the whole deployment. Create it with @BotFather, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET`, and register the webhook once:
+**A workspace's own bot.** Create a bot with @BotFather, paste its token in Settings, Keys and AI, Telegram, and press **Connect** (`POST /api/telegram/connect`). The server sets the bot's webhook to `/api/telegram?ws=<workspace>` with a secret derived for that workspace. Send any message to the bot from your staff group within 15 minutes: that chat is linked and the bot confirms. No `/chatid` is needed. To link another chat, press Connect again with "link another chat" (`{ "relink": true }`). Alerts, the Switch off button and the weekly digest use this bot; a tap counts only from the linked chat.
+
+**The deployment's bot**, for workspaces without their own. Create it with @BotFather, set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET`, and register the webhook once:
 
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-app>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>"
 ```
 
 Each workspace then adds the bot to its staff group, sends `/chatid`, and pastes the number the bot replies with into Setup, Integrations, Telegram chat id, and saves. Alerts and the weekly digest go to that chat. A "Switch off" tap is accepted only from the chat linked to that workspace.
+
+## 7. Smart plugs and relays: Shelly Cloud
+
+In the Shelly app, open User settings, Authorization cloud key: copy the key and the server address (like `https://shelly-123-eu.shelly.cloud`). Add both in Settings, Keys and AI, Shelly Cloud. Each device's id is in the app under the device, Settings, Device information. List which plug belongs to which room (`PUT /api/connections`):
+
+```json
+{ "shelly": [ { "roomId": "LAB-1", "id": "a8032ab12345", "channel": 0, "target": "all", "power": true } ] }
+```
+
+Every minute the server reads the devices (Shelly's Cloud Control API v2, 10 devices per call, one call per second): the switch state sets the room's devices of the `target` type on or off, and with `"power": true` the plug's watts become the room's metered power. A switch-off command turns the matching channels off. Use `"power": false` when the plug feeds only part of the room, so the room's other devices still count.
+
+## 8. The server API for apps and dashboards
+
+Every route needs the workspace session (`Authorization: Bearer <token>`) unless said otherwise. Roles: owner, manager, viewer (docs/DEPLOY.md, section 7a).
+
+| Route | Role | Does |
+| --- | --- | --- |
+| `POST /api/reading` | manager | `{ readings: CvReading[], sensors?: SensorReading[] }`; a camera's latest reading every 10 s, and staff reports; stored for the minute tick |
+| `GET /api/state` | viewer | The server's last computed twin, the latest camera readings and each room's sensor state |
+| `GET /api/history?room=&from=&to=` | viewer | Hourly roll-ups per room: kWh, cost, waste, occupied and observed minutes; at most 93 days |
+| `POST /api/tick` | `CRON_SECRET` | The minute tick (docs/DEPLOY.md, section 4b) |
+| `GET /api/doctor` | manager | Every connection tested now: `[{ name, ok, detail, fix }]` |
+| `GET`, `PUT /api/connections` | viewer, manager | Which Shelly devices and Home Assistant entities belong to which room |
+| `GET`, `PUT`, `DELETE /api/keys`; `POST /api/keys/test`; `PUT /api/keys/ai` | owner | Bring your own keys; values never come back, only the last four characters |
+| `GET /api/keys/client` | viewer | Only the Google Maps key, which the browser uses by design; restrict it to your domain in Google Cloud |
+| `GET`, `POST /api/telegram/connect` | viewer, owner | The linked bot and chat; Connect |
+| `GET`, `DELETE /api/sessions` | owner | Signed-in sessions; sign one out (anyone may sign out their own) |
+| `POST /api/workspace/invite` | owner | `{ role, days? }`: a key for an invite link that signs in with that role |
+| `PUT /api/workspace/password` | owner | `{ current, next }`; every other session is signed out |
+| `GET /api/workspace/export`, `DELETE /api/workspace` | owner | Download everything the workspace stored; delete it (with the password) |
