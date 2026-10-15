@@ -8,6 +8,7 @@ import { signInvite, signToken, type Role } from '../_lib/auth.js'
 import { aiCandidates, decrypt, encrypt, publicUrl } from '../_lib/keys.js'
 import { shellyChannel } from './connections.js'
 import { webhookSecret } from './telegram.js'
+import { readInviteLink } from '../../src/shared/workspace.js'
 
 const SECRET = 'test-secret-that-is-at-least-32-characters'
 const PLUG_HOST = 'https://93.184.215.14' // a public address literal: passes the private-network check with no DNS
@@ -406,6 +407,9 @@ describe('roles, sessions and the workspace', () => {
     const { invite } = await (await call('workspace/invite', { token: owner.token, body: { role: 'viewer' } })).json()
     const viewer = await (await call('workspace', { body: { mode: 'join', invite } })).json()
     expect(viewer).toMatchObject({ id: 'acme', role: 'viewer' })
+    // The browser reads the key back from the link it builds
+    expect(readInviteLink(`#i=${encodeURIComponent(invite)}&next=%2Fcamera`)).toEqual({ invite, next: '/camera' })
+    expect(readInviteLink(`#i=${encodeURIComponent(invite)}&next=https%3A%2F%2Fevil.example`)).toBeNull()
     expect((await call('workspace', { body: { mode: 'join', invite: `${invite}x` } })).status).toBe(401)
     expect((await call('workspace', { body: { mode: 'join', invite: signInvite('acme', 'owner', 1, Date.now() - 2 * 86_400_000) } })).status).toBe(401)
 
