@@ -3,7 +3,7 @@
 // Fans: how much the box changes between frames.
 
 import type { CameraZone } from '@/shared/types'
-import { LIGHT_HYSTERESIS } from '@/shared/config'
+import { CALIBRATION_MIN_GAP, LIGHT_HYSTERESIS } from '@/shared/config'
 
 /** A camera zone while it runs: the saved settings plus what the camera measures now */
 export interface Zone extends Omit<CameraZone, 'kind'> {
@@ -14,8 +14,11 @@ export interface Zone extends Omit<CameraZone, 'kind'> {
   kind?: CameraZone['kind']
 }
 
+/** An RGBA picture: ImageData in the browser, a plain object in tests */
+export type Frame = Pick<ImageData, 'width' | 'height' | 'data'>
+
 /** Mean luminance (0-255) of a zone in an RGBA frame */
-export function meanLuminance(frame: ImageData, z: Zone) {
+export function meanLuminance(frame: Frame, z: Pick<Zone, 'x' | 'y' | 'w' | 'h'>) {
   const x0 = Math.floor(z.x * frame.width)
   const y0 = Math.floor(z.y * frame.height)
   const x1 = Math.ceil((z.x + z.w) * frame.width)
@@ -32,7 +35,23 @@ export function meanLuminance(frame: ImageData, z: Zone) {
   return n ? sum / n : 0
 }
 
-export const isCalibrated = (z: Zone) => z.onRef !== undefined && z.offRef !== undefined && Math.abs(z.onRef - z.offRef) > 4
+/** On and off recordings at least CALIBRATION_MIN_GAP apart: the one rule the marking panel and the classifier share */
+export const isCalibrated = (z: Pick<Zone, 'onRef' | 'offRef'>) => z.onRef !== undefined && z.offRef !== undefined && Math.abs(z.onRef - z.offRef) >= CALIBRATION_MIN_GAP
+
+/** The reference wall patch: brightness zones are read relative to it, so daylight and auto-exposure cancel out */
+export const REF = 'REF'
+
+/** A device zone that reports: marked, and calibrated unless it is a fan (fans also work from raw motion) */
+export const zoneReady = (z: Pick<Zone, 'id' | 'kind' | 'w' | 'onRef' | 'offRef'>) => z.kind !== 'region' && z.id !== REF && z.w > 0 && (z.kind === 'motion' || isCalibrated(z))
+
+/**
+ * A brightness zone as a share of the reference patch, scaled so a zone as bright as the wall reads 64 and the
+ * scale fits the 0-255 calibration range (a fixture up to four times the wall). Without a marked patch: raw luminance.
+ */
+export function relativeLuminance(zoneLum: number, refLum: number | undefined) {
+  if (refLum === undefined) return zoneLum
+  return Math.min(255, (64 * zoneLum) / Math.max(refLum, 1))
+}
 
 /** On above the midpoint plus the band, off below it minus the band, unchanged in between */
 export function classify(z: Zone, luminance: number): boolean | undefined {
@@ -53,7 +72,7 @@ export const median = (values: number[]) => {
 }
 
 /** Mean absolute change (0-255) inside a zone between two frames: turning fan blades move, still ones do not. */
-export function meanMotion(prev: ImageData, frame: ImageData, z: Zone) {
+export function meanMotion(prev: Frame, frame: Frame, z: Pick<Zone, 'x' | 'y' | 'w' | 'h'>) {
   if (prev.width !== frame.width || prev.height !== frame.height) return 0
   const x0 = Math.floor(z.x * frame.width)
   const y0 = Math.floor(z.y * frame.height)
