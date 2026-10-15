@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { layoutRooms, makeDevices } from '@/shared/site'
+import { emptySite, layoutRooms, makeDevices } from '@/shared/site'
 import type { Room } from '@/shared/types'
 import { blockers, buildModel, collide, DOOR_H, floorWalls, placeDevices, planScale, polyArea, savePolygons, type RoomGeo, type V2 } from './model'
 import { alignToX, parseOverpass } from './osm'
+import { applyFloorplan } from './panels'
 
 const room = (id: string, floor: number, areaM2: number, extra: Partial<Room> = {}): Room => ({
   id,
@@ -168,5 +169,18 @@ describe('OpenStreetMap outline', () => {
     const zs = p.map((q) => q[1])
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(10, 1)
     expect(Math.max(...zs) - Math.min(...zs)).toBeCloseTo(2, 1)
+  })
+})
+
+describe('floor plan photo', () => {
+  it('fits matched rooms into the plan keeping the photo proportions, and leaves others alone', () => {
+    const site = { ...emptySite('IN'), floors: [{ level: 0, name: 'Ground floor' }], rooms: [room('A', 0, 50), room('B', 0, 50), room('C', 0, 50)] }
+    const p = { floors: [{ name: 'Ground floor', rooms: [{ name: 'A', x: 0.1, y: 0.1, w: 0.4, h: 0.2 }, { name: 'B', x: 0.5, y: 0.1, w: 0.4, h: 0.2 }, { name: 'Lift', x: 0.1, y: 0.3, w: 0.1, h: 0.1 }] }] }
+    const next = applyFloorplan(site, p, { w: 1000, h: 1000 }, [0], { '0-0': 'A', '0-1': 'B', '0-2': '' })
+    // 800 x 200 px of photo fills the 960-unit width; heights keep the same scale.
+    expect(next.rooms[0].polygon).toEqual([[20, 20], [500, 20], [500, 260], [20, 260]])
+    expect(next.rooms[1].polygon).toEqual([[500, 20], [980, 20], [980, 260], [500, 260]])
+    expect(next.rooms[2]).toBe(site.rooms[2])
+    expect(next.rooms[0].autoLayout).toBeUndefined()
   })
 })
