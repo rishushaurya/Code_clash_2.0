@@ -11,7 +11,8 @@ function devApi(): Plugin {
   return {
     name: 'pratibimb-dev-api',
     configureServer(server) {
-      for (const [k, v] of Object.entries(loadEnv('development', process.cwd(), ''))) process.env[k] ??= v
+      // Tests run without the real keys, so they never reach live services.
+      if (!process.env.VITEST) for (const [k, v] of Object.entries(loadEnv('development', process.cwd(), ''))) process.env[k] ??= v
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith('/api/')) return next()
         try {
