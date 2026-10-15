@@ -4,35 +4,59 @@
 import type { Command, FactsPack, Recommendation } from '@/shared/types'
 import { getSite, type SetupDraft } from '@/shared/site'
 import { apiFetch, online } from '@/shared/workspace'
+import type { Metric, Topic } from './guides'
+import type { SiteChange } from './proposals'
 import { templateRecommendation } from './templates'
 
 const cache = new Map<string, Recommendation>()
-/** Set when the server says no AI key is configured: stop asking for the rest of the session. */
-let aiOff = false
+/** The server said this workspace has no AI key: stop asking for two minutes (a key may be added meanwhile). */
+let noKeyUntil = 0
+const NO_KEY_PAUSE_MS = 120_000
+
+/** The workspace has no AI key for this feature; the UI links to Settings, Keys and AI */
+export class AiNeedsKey extends Error {
+  constructor() {
+    super('Add an AI key in Settings, Keys and AI')
+  }
+}
+/** The AI call failed for a reason a person can act on, as the server words it ("Your OpenAI key was refused (401)") */
+export class AiFailed extends Error {}
+
+/** Reads an AI route's failure: no key, a provider's reason, or a plain status */
+async function failure(path: string, res: Response): Promise<Error> {
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+  if (res.status === 503 && path.startsWith('/api/ai/')) {
+    noKeyUntil = Date.now() + NO_KEY_PAUSE_MS
+    return new AiNeedsKey()
+  }
+  if (res.status === 502 && body.error && body.error !== 'AI unavailable') return new AiFailed(body.error)
+  return new Error(`${path} ${res.status}`)
+}
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   // A workspace kept on this device has no server session: the templates answer instead.
   if (!online()) throw new Error('offline workspace')
-  const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (aiOff && path.startsWith('/api/ai/')) throw new Error('AI not configured')
-  const res = await apiFetch(path, { method: 'POST', headers, body: JSON.stringify(body) })
-  if (res.status === 503 && path.startsWith('/api/ai/')) aiOff = true
-  if (!res.ok) throw new Error(`${path} ${res.status}`)
+  if (path.startsWith('/api/ai/') && Date.now() < noKeyUntil) throw new AiNeedsKey()
+  const res = await apiFetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) throw await failure(path, res)
   return res.json() as Promise<T>
 }
 
-/** Same facts, same answer: identical situations never cost a second AI call. */
+/**
+ * Code decides the action from the rule (title, action, priority, the switch-off command); the AI only
+ * writes the reason. Same facts, same answer: identical situations never cost a second AI call.
+ */
 export async function recommend(facts: FactsPack): Promise<Recommendation> {
   const key = JSON.stringify(facts)
   const hit = cache.get(key)
   if (hit) return hit
-  let rec: Recommendation
+  const rec = templateRecommendation(facts)
   try {
-    const ai = await post<Omit<Recommendation, 'source' | 'command'>>('/api/ai/recommend', { facts })
-    const fallback = templateRecommendation(facts)
-    rec = { ...ai, command: fallback.command, source: 'ai' }
+    const { reason } = await post<{ reason: string }>('/api/ai/recommend', { facts, action: rec.action })
+    rec.reason = reason
+    rec.source = 'ai'
   } catch {
-    rec = templateRecommendation(facts)
+    // The code-written reason stands.
   }
   cache.set(key, rec)
   return rec
@@ -59,13 +83,9 @@ export interface SurveyItem {
   box: [number, number, number, number]
 }
 
-/** AI Surveyor: a ceiling photo becomes a device list. Throws 'not-configured' when no AI key is set. */
+/** AI Surveyor: a ceiling photo becomes a device list. Throws AiNeedsKey when the workspace has no AI key. */
 export async function surveyRoom(roomId: string, image: string): Promise<SurveyItem[]> {
-  if (!online()) throw new Error('not-configured')
-  const res = await apiFetch('/api/ai/surveyor', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId, image }) })
-  if (res.status === 503) throw new Error('not-configured')
-  if (!res.ok) throw new Error(`surveyor ${res.status}`)
-  return ((await res.json()) as { items: SurveyItem[] }).items
+  return (await post<{ items: SurveyItem[] }>('/api/ai/surveyor', { roomId, image })).items
 }
 
 export interface AuditTrail {
@@ -86,18 +106,27 @@ export async function auditTrail(days = 30): Promise<AuditTrail | null> {
 }
 
 export type CopilotTool =
+  | { tool: 'liveSummary' }
   | { tool: 'runScenario'; policy: 'auto_off' | 'daylight' | 'consolidate' | 'combined'; emptyMinutes?: number }
   | { tool: 'topWasters' }
   | { tool: 'getRoom'; roomId: string }
   | { tool: 'patterns' }
+  | { tool: 'coverage'; roomId?: string }
+  | { tool: 'explainMetric'; metric: Metric; roomId?: string }
+  | { tool: 'connectionGuide'; roomId?: string }
+  | { tool: 'proposeSiteChange'; change: SiteChange }
+  | { tool: 'teach'; topic: Topic }
   | { tool: 'none' }
 
-export async function copilotPlan(question: string, roomIds: string[]): Promise<CopilotTool> {
-  return post('/api/ai/copilot', { question, roomIds })
+/** Earlier questions and answers of this conversation, so "and LH-2?" makes sense */
+export type Turn = { q: string; a: string }
+
+export async function copilotPlan(question: string, roomIds: string[], history: Turn[] = []): Promise<CopilotTool> {
+  return post('/api/ai/copilot', { question, roomIds, history })
 }
 
-export async function copilotAnswer(question: string, toolResult: unknown): Promise<{ answer: string }> {
-  return post('/api/ai/copilot', { question, toolResult })
+export async function copilotAnswer(question: string, toolResult: unknown, history: Turn[] = []): Promise<{ answer: string }> {
+  return post('/api/ai/copilot', { question, toolResult, history })
 }
 
 /** Logs the command and broadcasts it to other devices. The twin applies it locally first. */
@@ -123,7 +152,7 @@ export async function setupFromText(text: string): Promise<{ draft: SetupDraft; 
   return post('/api/ai/setup', { text })
 }
 
-/** Writes recorded speech down on the server (Groq Whisper); `lang` is en, hi or kn */
+/** Writes recorded speech down on the server with the workspace's speech key; `lang` is en, hi or kn */
 export async function transcribe(audio: Blob, lang: string): Promise<string> {
   if (!online()) throw new Error('offline workspace')
   const res = await apiFetch(`/api/ai/transcribe?lang=${encodeURIComponent(lang)}`, {
@@ -131,6 +160,6 @@ export async function transcribe(audio: Blob, lang: string): Promise<string> {
     headers: { 'content-type': audio.type || 'audio/webm' },
     body: audio,
   })
-  if (!res.ok) throw new Error(`transcribe ${res.status}`)
+  if (!res.ok) throw await failure('/api/ai/transcribe', res)
   return ((await res.json()) as { text: string }).text
 }

@@ -5,7 +5,7 @@
 import { ClipboardCopy, Mic, Square, Sparkles, TriangleAlert } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { setupFromText, transcribe } from '@/ai/client'
+import { AiFailed, AiNeedsKey, setupFromText, transcribe } from '@/ai/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -13,7 +13,8 @@ import { Label } from '@/components/ui/label'
 import { applySetupDraft, COUNTRY_PRESETS, ROOM_TEMPLATES, type SetupDraft } from '@/shared/site'
 import type { Site } from '@/shared/types'
 import { online } from '@/shared/workspace'
-import { canRecord, micError, speak, startRecording } from './speech'
+import { AiKeyHint } from '../assistant/AiKeyHint'
+import { canRecord, speak, startRecording, voiceError } from './speech'
 
 const FORMAT = `Organization: City Engineering College
 Building: Main Block
@@ -78,7 +79,7 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
       setText((t) => `${t.trimEnd() ? `${t.trimEnd()}\n` : ''}${said}`.slice(0, 8000))
       if (!said) toast('No speech was heard. Speak closer to the microphone and try again.')
     } catch (e) {
-      toast.error(e instanceof Error && e.message.startsWith('transcribe') ? 'The voice service is not available just now. You can type instead.' : micError(e))
+      toast.error(voiceError(e))
     } finally {
       recRef.current = null
       setVoice('idle')
@@ -110,11 +111,13 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
     } catch (e) {
       const status = String(e)
       setError(
-        status.includes('401')
-          ? 'Your session has ended. Sign out and open the workspace again.'
-          : status.includes('503')
-            ? 'The server is missing a key this needs: WORKSPACE_SECRET, and GROQ_API_KEY or GEMINI_API_KEY (docs/DEPLOY.md). You can fill the form by hand.'
-            : 'The AI could not read it just now. Try again, or fill the form by hand.',
+        e instanceof AiNeedsKey
+          ? 'no-key'
+          : e instanceof AiFailed
+            ? `${e.message}. You can fill the form by hand.`
+            : status.includes('401')
+              ? 'Your session has ended. Sign out and open the workspace again.'
+              : 'The AI could not read it just now. Try again, or fill the form by hand.',
       )
       setState('error')
     }
@@ -204,7 +207,8 @@ export function AiSetup({ draft, onApply }: { draft: Site; onApply: (site: Site)
                 <span>{text.length} / 8000</span>
               </p>
             </div>
-            {state === 'error' && (
+            {state === 'error' && error === 'no-key' && <AiKeyHint problem={error} />}
+            {state === 'error' && error !== 'no-key' && (
               <p role="alert" className="rounded-md border border-waste/50 bg-waste/10 p-2 text-sm text-waste">
                 {error}
               </p>

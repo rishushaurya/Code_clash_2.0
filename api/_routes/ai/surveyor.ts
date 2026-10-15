@@ -3,8 +3,8 @@
 // The person confirms the counts before anything changes in the twin.
 
 import { z } from 'zod'
-import { json, logJson, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
-import { aiConfigured, chatJson } from '../../_lib/llm.js'
+import { json, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
+import { aiFailure, chatJson } from '../../_lib/llm.js'
 import { RoomIdSchema } from '../../_lib/schemas.js'
 
 const LABELS = ['light', 'fan', 'ac', 'projector', 'pc'] as const
@@ -33,16 +33,14 @@ const Body = z.object({
 export async function POST(req: Request) {
   const id = requireWorkspace(req)
   if (id instanceof Response) return id
-  if (!aiConfigured()) return json({ error: 'No AI key configured' }, 503)
   const limited = rateLimit(req, 6)
   if (limited) return limited
   const body = await readBody(req, Body, 2_000_000)
   if (body instanceof Response) return body
   try {
-    const out = await chatJson(SYSTEM, `Room ${body.roomId}. List its devices.`, Out, () => [], body.image)
+    const out = await chatJson({ workspace: id, task: 'vision' }, SYSTEM, `Room ${body.roomId}. List its devices.`, Out, () => [], body.image)
     return json(out)
   } catch (e) {
-    logJson('warn', 'surveyor failed', { roomId: body.roomId, error: String(e).slice(0, 300) })
-    return json({ error: 'AI unavailable' }, 502)
+    return aiFailure(e, 'surveyor', { roomId: body.roomId })
   }
 }
