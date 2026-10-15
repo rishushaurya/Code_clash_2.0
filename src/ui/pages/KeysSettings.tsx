@@ -3,7 +3,7 @@
 // characters and the last test. Each card has an id (#telegram, #groq) so the place a key is used can link here.
 
 import { ArrowDown, ArrowUp, Bot, ExternalLink, Home, KeyRound, Map as MapIcon, MessageCircle, Plug, Save, Send, ServerCog, Trash2, Webhook, type LucideIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,8 +12,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import type { AiProvider, AiSettings, AiTask, KeyName, KeyStatus } from '@/shared/types'
+import { can } from '@/shared/workspace'
 import { AI_PROVIDERS, callApi, useApi, type KeysResponse } from '../api'
-import { ErrorState, PageHeader, PanelSkeleton } from '../components/states'
+import { EmptyState, ErrorState, PageHeader, PanelSkeleton } from '../components/states'
 import { StatusLight, type Light } from '../components/status'
 import { useScrollToHash } from '../nav'
 
@@ -126,12 +127,12 @@ function KeyCard({ name, status, deployment, disabled, onSaved, onModels, childr
 
   async function runTest() {
     setBusy('test')
-    const r = await callApi<{ ok: boolean; error?: string; models?: string[] }>('/api/keys/test', { method: 'POST', json: { name } })
+    const r = await callApi<{ ok: boolean; error?: string; detail?: string; models?: string[] }>('/api/keys/test', { method: 'POST', json: { name } })
     setBusy('')
     if (r.state !== 'ok') return setTest({ ok: false, text: r.state === 'error' ? r.message : 'This server cannot test keys yet.' })
     const models = r.data.models ?? []
     if (models.length) onModels?.(models)
-    setTest(r.data.ok ? { ok: true, text: models.length ? `Works. ${models.length} models available.` : 'Works.' } : { ok: false, text: r.data.error ?? 'The provider refused the key.' })
+    setTest(r.data.ok ? { ok: true, text: [r.data.detail, models.length ? `${models.length} models available.` : ''].filter(Boolean).join(' ') || 'Works.' } : { ok: false, text: r.data.error ?? 'The provider refused the key.' })
     if (status) onSaved({ ...status, ok: r.data.ok, error: r.data.error, testedAt: Date.now() })
   }
 
@@ -221,28 +222,75 @@ function KeyCard({ name, status, deployment, disabled, onSaved, onModels, childr
   )
 }
 
+interface TelegramLink {
+  bot: string | null
+  chat: { id: string; title: string } | null
+  linkUntil: number | null
+}
+
+/** Connect sets the bot's webhook and opens a 15-minute window; the first chat that writes to the bot is linked. */
 function TelegramConnect({ disabled, ready }: { disabled: boolean; ready: boolean }) {
-  const [state, setState] = useState<{ busy: boolean; bot?: string; chat?: string; error?: string }>({ busy: false })
-  async function connect() {
-    setState({ busy: true })
-    const r = await callApi<{ ok?: boolean; bot?: string; chat?: string; error?: string }>('/api/telegram/connect', { method: 'POST' })
-    if (r.state !== 'ok') return setState({ busy: false, error: r.state === 'error' ? r.message : 'This server cannot connect a bot yet.' })
-    setState({ busy: false, ...r.data })
+  const [link, setLink] = useState<TelegramLink | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [now, setNow] = useState(Date.now)
+  const waiting = Boolean(link && !link.chat && link.linkUntil && link.linkUntil > now)
+
+  // Read the link once, then every 4 s while the window is open, until a chat writes to the bot.
+  useEffect(() => {
+    if (!ready || disabled) return
+    let live = true
+    const read = () =>
+      callApi<TelegramLink>('/api/telegram/connect').then((r) => {
+        if (!live) return
+        setNow(Date.now())
+        if (r.state === 'ok') setLink(r.data)
+      })
+    void read()
+    if (!waiting) return () => void (live = false)
+    const t = setInterval(read, 4000)
+    return () => {
+      live = false
+      clearInterval(t)
+    }
+  }, [ready, disabled, waiting])
+
+  async function connect(relink: boolean) {
+    setBusy(true)
+    const r = await callApi<TelegramLink & { next: string }>('/api/telegram/connect', { method: 'POST', json: { relink } })
+    setBusy(false)
+    setNow(Date.now())
+    if (r.state !== 'ok') return setNote({ ok: false, text: r.state === 'error' ? r.message : 'This server cannot connect a bot yet.' })
+    setLink(r.data)
+    setNote({ ok: true, text: r.data.next })
   }
+
+  const until = link?.linkUntil ? new Date(link.linkUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   return (
     <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span>{ready ? 'Then connect the bot to this workspace.' : 'Save the bot token first.'}</span>
-        <Button type="button" size="sm" onClick={connect} disabled={disabled || !ready || state.busy}>
-          <Send aria-hidden /> {state.busy ? 'Connecting' : 'Connect'}
-        </Button>
+      <p role="status">
+        {!ready
+          ? 'Save the bot token first, then connect it.'
+          : link?.chat
+            ? `${link.bot ?? 'The bot'} sends alerts to "${link.chat.title}".`
+            : waiting
+              ? `Waiting for a message: add ${link?.bot ?? 'the bot'} to your staff group (or open it) and send anything before ${until}.`
+              : link?.bot
+                ? `${link.bot} is connected, but no chat is linked yet.`
+                : 'Connect the bot to this workspace.'}
+      </p>
+      {note && !note.ok && <p className="text-waste">{note.text}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        {link?.chat ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => connect(true)} disabled={disabled || busy}>
+            <Send aria-hidden /> {busy ? 'Connecting' : 'Link another chat'}
+          </Button>
+        ) : (
+          <Button type="button" size="sm" onClick={() => connect(false)} disabled={disabled || !ready || busy}>
+            <Send aria-hidden /> {busy ? 'Connecting' : waiting ? 'Connect again' : 'Connect'}
+          </Button>
+        )}
       </div>
-      {(state.bot || state.chat || state.error) && (
-        <p role="status" className={state.error ? 'text-waste' : ''}>
-          {state.error ??
-            [state.bot && `Bot ${state.bot.startsWith('@') ? state.bot : `@${state.bot}`} is connected.`, state.chat ? `Alerts go to ${state.chat}.` : 'Now write any message to the bot in your staff group to link that chat.'].filter(Boolean).join(' ')}
-        </p>
-      )}
     </div>
   )
 }
@@ -365,11 +413,25 @@ function AiRouting({ settings, keys, deployment, models, disabled, onSaved }: { 
 }
 
 export default function KeysSettings() {
-  const [res, reload] = useApi<KeysResponse>('/api/keys')
+  const owner = can('owner')
+  const [res, reload] = useApi<KeysResponse>(owner ? '/api/keys' : null)
   const [local, setLocal] = useState<{ keys: KeyStatus[]; ai: AiSettings } | null>(null)
   const [models, setModels] = useState<Partial<Record<AiProvider, string[]>>>({})
   useScrollToHash(res.state !== 'loading')
 
+  if (!owner)
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Keys and AI" description="Bring your own keys, stored encrypted on the server." />
+        <Card>
+          <CardContent>
+            <EmptyState icon={KeyRound} title="Only the workspace owner manages keys">
+              <p className="text-sm">Ask the owner to add or change a key. Everything that uses the keys keeps working for you.</p>
+            </EmptyState>
+          </CardContent>
+        </Card>
+      </div>
+    )
   if (res.state === 'loading') return <PanelSkeleton rows={8} />
   if (res.state === 'error') return <ErrorState message={res.message} onRetry={reload} />
 

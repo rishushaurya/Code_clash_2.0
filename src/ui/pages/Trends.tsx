@@ -11,7 +11,7 @@ import { formatMoney } from '@/twin/energy'
 import { useApi } from '../api'
 import { Patterns } from '../components/Patterns'
 import { EmptyState, ErrorBoundary, ErrorState, NotYet, PageHeader, PanelSkeleton } from '../components/states'
-import { bucket, parseHistory, RANGE_MS, type Range } from '../history'
+import { bucket, RANGE_MS, type HistoryResponse, type Range } from '../history'
 
 const RANGES: { id: Range; label: string }[] = [
   { id: 'day', label: 'Day' },
@@ -25,8 +25,8 @@ export default function Trends() {
   const [room, setRoom] = useState('all')
   const [now] = useState(Date.now)
   const from = now - RANGE_MS[range]
-  const [res, reload] = useApi<unknown>(`/api/history?from=${from}&to=${now}${room === 'all' ? '' : `&room=${encodeURIComponent(room)}`}`)
-  const data = res.state === 'ok' ? bucket(parseHistory(res.data), range) : null
+  const [res, reload] = useApi<HistoryResponse>(`/api/history?from=${from}&to=${now}${room === 'all' ? '' : `&room=${encodeURIComponent(room)}`}`)
+  const data = res.state === 'ok' ? bucket(res.data.hours ?? [], range) : null
   const label = (ts: number) => (range === 'day' ? new Date(ts).toLocaleTimeString([], { hour: '2-digit' }) : new Date(ts).toLocaleDateString([], { day: 'numeric', month: 'short' }))
   const rows = data?.buckets.map((b) => ({ ...b, label: label(b.ts), usedKwh: +b.usedKwh.toFixed(3), wasteKwh: +b.wasteKwh.toFixed(3) })) ?? []
 

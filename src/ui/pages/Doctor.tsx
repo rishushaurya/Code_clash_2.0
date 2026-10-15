@@ -1,13 +1,14 @@
-// /connections/doctor  Runs every connection's check on the server and says exactly what to fix.
-// Until the server has /api/doctor, it falls back to the deployment's status flags and this browser's own checks.
+// /connections/doctor  Runs every connection's check on the server (GET /api/doctor) and says exactly what to fix,
+// plus the two checks only this browser can make.
 
 import { RotateCcw, Stethoscope } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useRelay } from '@/relay/webSerial'
+import { can } from '@/shared/workspace'
 import { useRealtime } from '@/twin/realtime'
-import { useApi, type ServerStatus } from '../api'
-import { EmptyState, ErrorState, PageHeader, PanelSkeleton } from '../components/states'
+import { useApi } from '../api'
+import { EmptyState, ErrorState, NotYet, PageHeader, PanelSkeleton } from '../components/states'
 import { StatusLight } from '../components/status'
 
 interface Check {
@@ -16,16 +17,6 @@ interface Check {
   detail?: string
   fix?: string
 }
-
-const FALLBACK: { key: keyof ServerStatus; name: string; fix: string }[] = [
-  { key: 'workspaces', name: 'Online workspaces', fix: 'Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and WORKSPACE_SECRET on the server.' },
-  { key: 'realtime', name: 'Live channel for phones and cameras', fix: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then rebuild.' },
-  { key: 'ingest', name: 'Sensor API', fix: 'Needs online workspaces (above).' },
-  { key: 'ai', name: 'AI wording and the Assistant', fix: 'Add a key in Settings, Keys and AI.' },
-  { key: 'aiVision', name: 'AI photo reading', fix: 'Add a Google Gemini key in Settings, Keys and AI.' },
-  { key: 'telegram', name: 'Telegram alerts', fix: 'Add a bot token in Settings, Keys and AI, then press Connect.' },
-  { key: 'commandWebhook', name: 'Command webhook', fix: 'Add the URL and secret in Settings, Keys and AI.' },
-]
 
 function Row({ c }: { c: Check }) {
   return (
@@ -48,8 +39,8 @@ function Row({ c }: { c: Check }) {
 }
 
 export default function Doctor() {
-  const [doctor, rerun] = useApi<Check[] | { checks: Check[] }>('/api/doctor')
-  const [status, restatus] = useApi<ServerStatus>('/api/status')
+  const allowed = can('manager')
+  const [doctor, rerun] = useApi<{ checks: Check[]; ok: boolean }>(allowed ? '/api/doctor' : null)
   const realtime = useRealtime((s) => s.status)
   const relay = useRelay((s) => s.status)
 
@@ -67,59 +58,47 @@ export default function Doctor() {
       fix: 'Use Chrome or Edge on a computer to drive a USB relay.',
     },
   ]
-  const server: Check[] | null =
-    doctor.state === 'ok'
-      ? Array.isArray(doctor.data)
-        ? doctor.data
-        : (doctor.data.checks ?? [])
-      : doctor.state === 'missing' && status.state === 'ok'
-        ? FALLBACK.filter((f) => f.key in status.data).map((f) => ({ name: f.name, ok: Boolean(status.data[f.key]), fix: f.fix }))
-        : null
-  const failing = server?.filter((c) => !c.ok).length ?? 0
+  const checks = doctor.state === 'ok' ? (doctor.data.checks ?? []) : []
+  const failing = checks.filter((c) => !c.ok).length
 
   return (
     <div className="space-y-4">
       <PageHeader title="Connection doctor" description="Tests every link from the server to your keys, storage, live channel and devices, and says what to fix.">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            rerun()
-            restatus()
-          }}
-        >
-          <RotateCcw aria-hidden /> Run again
-        </Button>
+        {allowed && (
+          <Button variant="outline" size="sm" onClick={rerun} disabled={doctor.state === 'loading'}>
+            <RotateCcw aria-hidden /> Run again
+          </Button>
+        )}
       </PageHeader>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Server checks</CardTitle>
-          <CardDescription>
-            {doctor.state === 'missing' ? 'The full doctor comes with the server update; these are the deployment settings it reports today.' : 'Run on the server with this workspace\'s keys.'}
-          </CardDescription>
+          <CardDescription>Run on the server with this workspace's keys. Keys are never shown.</CardDescription>
         </CardHeader>
         <CardContent>
-          {server ? (
-            server.length ? (
-              <>
-                <p role="status" className="mb-1 text-sm font-medium">
-                  {failing ? `${failing} of ${server.length} checks need a fix` : `All ${server.length} checks pass`}
-                </p>
-                <ul className="divide-y">
-                  {server.map((c) => (
-                    <Row key={c.name} c={c} />
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <EmptyState icon={Stethoscope} title="The server reported no checks" />
-            )
+          {!allowed ? (
+            <EmptyState icon={Stethoscope} title="Managers and owners run the doctor">
+              <p className="text-sm">Your role can see the twin but not test its connections.</p>
+            </EmptyState>
+          ) : doctor.state === 'loading' ? (
+            <PanelSkeleton rows={5} />
+          ) : doctor.state === 'missing' ? (
+            <NotYet what="The connection doctor" reason={doctor.reason} />
           ) : doctor.state === 'error' ? (
             <ErrorState message={doctor.message} onRetry={rerun} />
-          ) : status.state === 'error' ? (
-            <ErrorState message={status.message} onRetry={restatus} />
+          ) : checks.length ? (
+            <>
+              <p role="status" className="mb-1 text-sm font-medium">
+                {failing ? `${failing} of ${checks.length} checks need a fix` : `All ${checks.length} checks pass`}
+              </p>
+              <ul className="divide-y">
+                {checks.map((c) => (
+                  <Row key={c.name} c={c} />
+                ))}
+              </ul>
+            </>
           ) : (
-            <PanelSkeleton rows={5} />
+            <EmptyState icon={Stethoscope} title="The server reported no checks" />
           )}
         </CardContent>
       </Card>
