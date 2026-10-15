@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { apiFetch, joinLink, online, SESSION, signOut } from '@/shared/workspace'
+import { apiFetch, can, joinLink, online, SESSION, signOut } from '@/shared/workspace'
 import { callApi, useApi } from '../api'
 import { ErrorState, NotYet, PageHeader, PanelSkeleton } from '../components/states'
 
@@ -231,7 +231,8 @@ function YourData() {
 }
 
 export default function Team() {
-  const [sessions, reload] = useApi<{ sessions: SessionRow[] }>(online() ? '/api/sessions' : null)
+  const owner = can('owner')
+  const [sessions, reload] = useApi<{ sessions: SessionRow[] }>(online() && owner ? '/api/sessions' : null)
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader title="Team and access" description={`Who can open ${SESSION?.name ?? 'this workspace'}, and from which devices.`} />
@@ -239,6 +240,18 @@ export default function Team() {
         <Card>
           <CardContent>
             <NotYet what="Team and access" reason="local" />
+          </CardContent>
+        </Card>
+      ) : !owner ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Only the workspace owner manages the team</CardTitle>
+            <CardDescription>You are signed in as a {SESSION?.role ?? 'member'}. Ask the owner for another role or a new invite.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="ghost" className="text-waste" onClick={signOut}>
+              <LogOut aria-hidden /> Sign out of this device
+            </Button>
           </CardContent>
         </Card>
       ) : sessions.state === 'loading' ? (

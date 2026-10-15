@@ -1,9 +1,8 @@
-// Hourly roll-ups from GET /api/history (stored by the server's minute tick), grouped for the Trends chart.
-// Accepts camelCase or the table's snake_case, wrapped in { hours } or { rows } or bare, so a small shape
-// difference between branches never blanks the page.
+// Hourly roll-ups from GET /api/history (written by the server's minute tick), grouped for the Trends chart.
 
 export interface HourRow {
   roomId: string
+  /** Epoch ms of the hour's start */
   hour: number
   kwh: number
   cost: number
@@ -13,23 +12,10 @@ export interface HourRow {
   observedMinutes: number
 }
 
-const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0)
-
-export function parseHistory(body: unknown): HourRow[] {
-  const b = body as { hours?: unknown; rows?: unknown } | unknown[] | null
-  const list = Array.isArray(b) ? b : Array.isArray(b?.hours) ? b.hours : Array.isArray(b?.rows) ? b.rows : []
-  return (list as Record<string, unknown>[])
-    .map((r) => ({
-      roomId: String(r.roomId ?? r.room_id ?? ''),
-      hour: typeof r.hour === 'number' ? r.hour : Date.parse(String(r.hour)),
-      kwh: n(r.kwh),
-      cost: n(r.cost),
-      wasteKwh: n(r.wasteKwh ?? r.waste_kwh),
-      wasteCost: n(r.wasteCost ?? r.waste_cost),
-      occupiedMinutes: n(r.occupiedMinutes ?? r.occupied_minutes),
-      observedMinutes: n(r.observedMinutes ?? r.observed_minutes),
-    }))
-    .filter((r) => r.roomId && Number.isFinite(r.hour))
+export interface HistoryResponse {
+  from: number
+  to: number
+  hours: HourRow[]
 }
 
 export type Range = 'day' | 'week' | 'month'

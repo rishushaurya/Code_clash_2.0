@@ -1,6 +1,7 @@
 // The first page: open or create a workspace with a name and a password. Everything inside a workspace
 // (building, cameras, live data, reports) belongs to it alone, so many teams can use one deployment.
 // /join#s=...  The page behind a camera QR code: signs this device in to the workspace and opens the camera.
+// /join#i=...  An invite link for a role (Team and access).
 
 import { Building2, Camera, KeyRound, Lock, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { localWorkspace, readJoinLink, signIn, takeSignedOutReason, workspaceIdOf, type Session } from '@/shared/workspace'
+import { acceptInvite, localWorkspace, readInviteLink, readJoinLink, signIn, takeSignedOutReason, workspaceIdOf, type Session } from '@/shared/workspace'
 
 export function WorkspaceGate() {
   const [mode, setMode] = useState<'open' | 'create'>('open')
@@ -113,22 +114,29 @@ export function WorkspaceGate() {
 }
 
 export function JoinPage() {
+  // Two kinds of link: #s= carries a session (camera QR codes), #i= an invite for a role that the server turns
+  // into this device's own session.
   const [join] = useState(() => readJoinLink(location.hash))
-  const failed = !join
+  const [invite] = useState(() => readInviteLink(location.hash))
+  const [error, setError] = useState(join || invite ? '' : 'This link is not valid.')
   useEffect(() => {
     // The key must not stay in the address bar or the history.
     history.replaceState(null, '', '/join')
-    if (join) signIn(join.session, join.next)
-  }, [join])
+    if (join) return signIn(join.session, join.next)
+    if (invite)
+      void acceptInvite(invite.invite).then((r) => (typeof r === 'string' ? setError(r) : signIn(r, invite.next)))
+  }, [join, invite])
   return (
     <main className="flex min-h-dvh items-center justify-center p-4 text-center">
-      {failed ? (
-        <div className="space-y-3">
-          <p>This link is not valid. Scan the QR code on the operator's screen again, or sign in with the workspace name and password.</p>
+      {error ? (
+        <div className="max-w-md space-y-3">
+          <p role="alert">{error} Ask for a new link, scan the QR code on the operator's screen again, or sign in with the workspace name and password.</p>
           <Button onClick={() => location.assign('/')}>Sign in</Button>
         </div>
       ) : (
-        <p className="text-muted-foreground">Joining the workspace</p>
+        <p className="text-muted-foreground" role="status">
+          Joining the workspace
+        </p>
       )}
     </main>
   )
