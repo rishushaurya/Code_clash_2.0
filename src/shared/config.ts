@@ -16,6 +16,8 @@ export const DETECT_EVERY_MS = 500
 export const READING_EVERY_MS = 2000
 /** Zone hysteresis as a fraction of the on/off gap */
 export const LIGHT_HYSTERESIS = 0.15
+/** On and off calibrations closer than this (0-255) cannot tell a zone's states apart */
+export const CALIBRATION_MIN_GAP = 8
 /** Mean frame-to-frame change (0-255) inside a fan zone that means the blades are turning */
 export const MOTION_ON_THRESHOLD = 6
 /** Readings older than this are ignored when merging cameras */

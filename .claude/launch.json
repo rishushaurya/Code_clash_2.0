@@ -6,6 +6,36 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5173", "--strictPort"],
       "port": 5173
+    },
+    {
+      "name": "pratibimb-cameras",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5174", "--strictPort"],
+      "port": 5174
+    },
+    {
+      "name": "pratibimb-ai",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5175", "--strictPort"],
+      "port": 5175
+    },
+    {
+      "name": "pratibimb-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5176", "--strictPort"],
+      "port": 5176
+    },
+    {
+      "name": "pratibimb-3d",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5177", "--strictPort"],
+      "port": 5177
+    },
+    {
+      "name": "pratibimb-shell",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5178", "--strictPort"],
+      "port": 5178
     }
   ]
 }

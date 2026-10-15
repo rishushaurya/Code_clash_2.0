@@ -17,6 +17,8 @@ export interface Device {
   zone?: string
   /** Brick Schema class, e.g. "Luminaire" */
   brickClass: string
+  /** Where it is in the room, in metres from the room's corner nearest the floor plan's origin: [x, height, z] */
+  position?: [number, number, number]
 }
 
 export interface Room {
@@ -33,6 +35,8 @@ export interface Room {
   /** true when the polygon came from the automatic layout, so it is recomputed when rooms change */
   autoLayout?: boolean
   devices: Device[]
+  /** Floor to ceiling, metres; 3 when missing */
+  heightM?: number
   /** Several cameras in one room: 'max' if views overlap (default), 'sum' if they split the room */
   cameraMerge?: 'max' | 'sum'
   /** A relay on this machine's USB port switches this room's lights */
@@ -140,6 +144,8 @@ export interface RoomState {
   temperatureC?: number
   humidity?: number
   status: RoomStatus
+  /** How each device's state in deviceOn is known; 'inferred' = unseen, takes the state of seen devices of its type */
+  deviceSource?: Record<string, 'camera' | 'sensor' | 'manual' | 'inferred'>
   /** Which inputs fed this room in the last tick */
   sources: ('camera' | 'sensor' | 'manual')[]
   zones: Record<string, boolean>
@@ -275,4 +281,37 @@ export interface TwinEvent {
   roomId: RoomId | null
   kind: 'status' | 'alert' | 'recommendation' | 'command' | 'ack'
   text: string
+}
+
+// Bring your own keys: each workspace stores its own keys on the server, encrypted. A key's value is
+// never sent back to the browser; only whether it is set, its last four characters, and its last test.
+
+export type AiProvider = 'groq' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'custom'
+export type KeyName = AiProvider | 'telegram' | 'google_maps' | 'command_webhook'
+/** What an AI call is for; each can use a different provider and model */
+export type AiTask = 'chat' | 'report' | 'vision' | 'speech'
+
+export interface KeyStatus {
+  name: KeyName
+  set: boolean
+  last4?: string
+  /** For 'custom' (any OpenAI-compatible API) and 'command_webhook' (its URL) */
+  baseUrl?: string
+  testedAt?: number
+  ok?: boolean
+  error?: string
+}
+
+export interface AiChoice {
+  provider: AiProvider
+  /** Empty means the provider's default model */
+  model: string
+}
+
+export interface AiSettings {
+  tasks: Record<AiTask, AiChoice>
+  /** Tried in this order when the task's provider fails */
+  fallback: AiProvider[]
+  /** Use the deployment's own keys when the workspace has none (the operator can switch this off) */
+  useDeploymentKeys: boolean
 }
