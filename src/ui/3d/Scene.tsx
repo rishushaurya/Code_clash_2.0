@@ -148,7 +148,7 @@ export function Scene(props: Props) {
       </Bvh>
       {outline && mode !== 'walk' && <Shell outline={outline} model={model} tokens={tokens} />}
       {mode === 'orbit' ? (
-        <Orbit {...props} centre={centre} span={span} />
+        <Orbit {...props} span={span} />
       ) : (
         <Walker {...props} floor={model.floors.find((f) => f.level === levels[0]) ?? model.floors[0]} fly={mode === 'fly'} />
       )}
@@ -167,18 +167,27 @@ export function Scene(props: Props) {
   )
 }
 
-function Orbit({ api, centre, span, model, reduced, explode }: Props & { centre: THREE.Vector3; span: number }) {
+function Orbit({ api, span, model, reduced, explode, levels }: Props & { span: number }) {
   const ref = useRef<CameraControls>(null)
+  const framed = useRef(false)
   useEffect(() => {
     const c = ref.current
     if (!c) return
-    // Far enough that the building's bounding sphere fills most of the view, from the south-east and above.
-    const height = model.top + (explode ? EXPLODE_GAP * (model.floors.length - 1) : 0)
-    const radius = 0.5 * Math.hypot(model.max[0] - model.min[0], model.max[1] - model.min[1], height)
+    // One floor picked: frame that floor. Otherwise the whole building, exploded or not.
+    const one = levels.length === 1 ? model.floors.find((f) => f.level === levels[0]) : undefined
+    const box = one ? floorBox(one) : { min: model.min, max: model.max }
+    const base = one ? one.y : 0
+    const height = one ? one.h : model.top + (explode ? EXPLODE_GAP * (model.floors.length - 1) : 0)
+    const cx = (box.min[0] + box.max[0]) / 2
+    const cz = (box.min[1] + box.max[1]) / 2
+    // Far enough that the bounding sphere fills most of the view, from the south-east and above.
+    const radius = 0.5 * Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], height)
     const d = (radius / Math.sin((55 * Math.PI) / 360)) * 1.05
     const dir = new THREE.Vector3(0.4, 0.85, 0.6).normalize().multiplyScalar(d)
-    const reset = (smooth: boolean) => c.setLookAt(centre.x + dir.x, height / 2 + dir.y, centre.z + dir.z, centre.x, height / 2, centre.z, smooth)
-    void reset(false)
+    const y = base + height / 2
+    const reset = (smooth: boolean) => c.setLookAt(cx + dir.x, y + dir.y, cz + dir.z, cx, y, cz, smooth)
+    void reset(framed.current && !reduced)
+    framed.current = true
     api.current = {
       reset: () => void reset(!reduced),
       focus: (id) => {
@@ -188,8 +197,8 @@ function Orbit({ api, centre, span, model, reduced, explode }: Props & { centre:
         void c.setLookAt(r.center[0] + d * 0.5, r.y + r.h + d, r.center[1] + d, r.center[0], r.y, r.center[1], !reduced)
       },
     }
-    // Only when the building's extent changes, not on every edit.
-  }, [Math.round(span), model.top, reduced, explode])
+    // Only when the building's extent or the picked floor changes, not on every edit.
+  }, [Math.round(span), model.top, reduced, explode, levels.join()])
   return <CameraControls ref={ref} makeDefault maxPolarAngle={Math.PI / 2 - 0.05} minDistance={3} maxDistance={span * 5} smoothTime={reduced ? 0 : 0.25} />
 }
 
