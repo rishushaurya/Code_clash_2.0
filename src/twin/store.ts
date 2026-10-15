@@ -308,11 +308,12 @@ export const useTwin = create<TwinState>((set, get) => {
     try {
       const res = await apiFetch('/api/state')
       if (!res.ok) return
-      const body = (await res.json()) as { state: { rooms: Record<string, RoomState>; savedCost?: number } | null; sensors: SensorReading[] }
+      const body = (await res.json()) as { state: { rooms: Record<string, RoomState>; savedCost?: number } | null; sensors: Record<string, SensorState> }
       const known = new Set(getSite().rooms.map((r) => r.id))
       set((s) => {
         const sensors = { ...s.sensors }
-        for (const r of [...body.sensors].sort((a, b) => a.ts - b.ts)) if (validSensor(r) && known.has(r.roomId)) sensors[r.roomId] = applySensor(sensors[r.roomId], r)
+        // What the server knows from sensors, for rooms this browser has heard nothing from yet.
+        for (const [id, sn] of Object.entries(body.sensors ?? {})) if (known.has(id) && !sensors[id] && typeof sn?.byId === 'object' && typeof sn?.byType === 'object') sensors[id] = sn
         const rooms = { ...s.rooms }
         for (const [id, r] of Object.entries(body.state?.rooms ?? {})) if (known.has(id) && (s.rooms[id]?.kwh ?? 0) <= r.kwh) rooms[id] = r
         return { sensors, rooms, savedCost: Math.max(s.savedCost, body.state?.savedCost ?? 0) }

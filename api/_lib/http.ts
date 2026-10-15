@@ -2,8 +2,9 @@
 
 import { createHmac } from 'node:crypto'
 import type { z } from 'zod'
-import { authConfigured, channels, readToken, same } from './auth.js'
-import { storageProblem, supabase } from './db.js'
+import { authConfigured, channels, derived, readClaims, readToken, same, type Role, type SessionClaims } from './auth.js'
+import { rest, storageProblem, supabase } from './db.js'
+import { getKey, safeFetch } from './keys.js'
 
 export const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
@@ -31,16 +32,69 @@ export function requireWorkspace(req: Request): string | Response {
   return id ?? json({ error: 'Sign in to your workspace again' }, 401)
 }
 
-// seniordev: in-memory window per server instance; good enough to stop a runaway loop, use Upstash or similar for real limits.
+const RANK: Record<Role, number> = { viewer: 0, manager: 1, owner: 2 }
+/** Whether a session is still signed in, per server instance for 30 s, so a revoke takes effect within 30 s */
+const liveSessions = new Map<string, { ok: boolean; at: number }>()
+export const forgetSession = (sid: string) => liveSessions.delete(sid)
+
+async function sessionLive(c: SessionClaims) {
+  const hit = liveSessions.get(c.sid!)
+  if (hit && Date.now() - hit.at < 30_000) return hit.ok
+  const res = await rest(`sessions?id=eq.${c.sid}&workspace=eq.${c.id}&select=revoked_at`)
+  // No sessions table yet (404), or storage briefly failing: the signature alone decides, as before roles.
+  // A failure is not cached, and is never read as "signed out", which would sign the person out for nothing.
+  if (!res?.ok) return true
+  const found = (await res.json().catch(() => null)) as { revoked_at: string | null }[] | null
+  if (!Array.isArray(found)) return true
+  const ok = found.length === 1 && !found[0].revoked_at
+  liveSessions.set(c.sid!, { ok, at: Date.now() })
+  return ok
+}
+
+/**
+ * The caller's session from "Authorization: Bearer <token>", with at least the role `min`, or the
+ * 401/403/503 to send back. Checks that the session was not signed out (Team and access, or a password change).
+ */
+export async function requireRole(req: Request, min: Role = 'viewer'): Promise<SessionClaims | Response> {
+  if (!authConfigured()) return json({ error: 'Workspaces are not configured on this server' }, 503)
+  const c = readClaims((req.headers.get('authorization') ?? '').replace(/^Bearer /, ''))
+  if (!c || (c.sid && !(await sessionLive(c)))) return json({ error: 'Sign in to your workspace again' }, 401)
+  if (RANK[c.role] < RANK[min]) return json({ error: `Only a workspace ${min}${min === 'owner' ? '' : ' or owner'} can do this` }, 403)
+  return c
+}
+
+/** The route a request is for: on Vercel every path arrives as /api/router?path=<route> */
+const routeOf = (req: Request) => {
+  const url = new URL(req.url)
+  return url.searchParams.get('path') ?? url.pathname
+}
+const callerIp = (req: Request) => req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local'
+
+// seniordev: in-memory window per server instance; the fallback when the shared limit (below) is not set up.
 const hits = new Map<string, { start: number; count: number }>()
 export function rateLimit(req: Request, perMinute = 30): Response | null {
   // Per route and address: a busy sensor feed must not lock the same address out of everything else.
-  const ip = `${new URL(req.url).pathname} ${req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local'}`
+  const ip = `${routeOf(req)} ${callerIp(req)}`
   const now = Date.now()
   const h = hits.get(ip)
   if (!h || now - h.start > 60_000) hits.set(ip, { start: now, count: 1 })
-  else if (++h.count > perMinute) return new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429, headers: { 'retry-after': '60' } })
+  else if (++h.count > perMinute) return tooMany()
   return null
+}
+
+const tooMany = () => new Response(JSON.stringify({ error: 'Too many requests' }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '60' } })
+
+/**
+ * Rate limit per route and address, counted in Supabase (function rate_hit, supabase/schema.sql) so it holds
+ * across every server instance. The address is stored only as a keyed hash. Falls back to the in-memory
+ * window when the function is missing or storage is down.
+ */
+export async function limit(req: Request, perMinute = 30): Promise<Response | null> {
+  if (!authConfigured()) return rateLimit(req, perMinute)
+  const res = await rest('rpc/rate_hit', { method: 'POST', body: JSON.stringify({ p_key: derived(`rate:${routeOf(req)}:${callerIp(req)}`, 22), p_window_s: 60 }) })
+  const count = res?.ok ? await res.json().catch(() => null) : null
+  if (typeof count !== 'number') return rateLimit(req, perMinute)
+  return count > perMinute ? tooMany() : null
 }
 
 /** Broadcast on a workspace's private twin channel through Supabase's REST endpoint: no websocket needed in a function. */
@@ -90,20 +144,22 @@ export const logJson = (level: 'info' | 'warn' | 'error', message: string, meta:
   console[level](JSON.stringify({ ts: new Date().toISOString(), level, message, ...meta }))
 
 /**
- * Forward a command to the customer's own system (Home Assistant webhook, BMS bridge, PLC gateway).
+ * Forward a command to the customer's own system (Home Assistant webhook, BMS bridge, PLC gateway): the
+ * workspace's own command webhook (Keys and AI), else the deployment's COMMAND_WEBHOOK_URL.
  * Signed with HMAC-SHA256 so the receiver can check it came from this server:
- *   x-pratibimb-signature: sha256=<hex of HMAC(COMMAND_WEBHOOK_SECRET, raw body)>
+ *   x-pratibimb-signature: sha256=<hex of HMAC(secret, raw body)>
  * The body names the workspace, so one receiver can serve several workspaces.
  */
 export async function forwardCommand(workspace: string, cmd: object) {
-  const url = process.env.COMMAND_WEBHOOK_URL
+  const own = await getKey(workspace, 'command_webhook').catch(() => null)
+  const url = own?.baseUrl ?? process.env.COMMAND_WEBHOOK_URL
   if (!url) return false
   const body = JSON.stringify({ ...cmd, workspace })
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  const secret = process.env.COMMAND_WEBHOOK_SECRET
+  const secret = own ? own.value : process.env.COMMAND_WEBHOOK_SECRET
   if (secret) headers['x-pratibimb-signature'] = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
   try {
-    const res = await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(5000) })
+    const res = own ? await safeFetch(url, { method: 'POST', headers, body }) : await fetch(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(5000) })
     return res.ok
   } catch {
     return false

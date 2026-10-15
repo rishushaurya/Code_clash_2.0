@@ -1,10 +1,11 @@
-// GET /api/digest  Weekly summary per workspace from the stored event log, sent to each workspace's
-// Telegram chat. Run by Vercel Cron
+// GET /api/digest  Weekly summary per workspace from the stored event log, sent to each workspace's linked
+// Telegram chat through its own bot (else the deployment's). Run by Vercel Cron
 // (vercel.json), which calls it with "Authorization: Bearer <CRON_SECRET>". Built only from real events.
 // Cron delivery can repeat; a repeated digest is harmless, so no lock is kept.
 
-import { recentEvents, table } from '../_lib/db.js'
+import { recentEvents, table, telegramChat } from '../_lib/db.js'
 import { json, safeEqual } from '../_lib/http.js'
+import { botFor, tg } from './telegram.js'
 
 export function weeklyDigest(rows: { room_id: string | null; kind: string; payload: { text?: string } }[]) {
   const count = (k: string) => rows.filter((r) => r.kind === k).length
@@ -25,23 +26,18 @@ export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET
   if (!secret || !safeEqual(req.headers.get('authorization') ?? '', `Bearer ${secret}`)) return json({ error: 'Unauthorized' }, 401)
   const d = table('sites')
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!d || !token) return json({ error: 'Server storage or Telegram is not configured' }, 503)
-  // Workspaces that chose a Telegram chat; their camera documents (ids with a slash) are skipped.
-  const res = await fetch(`${d.url}?site->>telegramChatId=not.is.null&id=not.like.*%2F*&select=id,chat:site->>telegramChatId&limit=200`, { headers: d.headers })
+  if (!d) return json({ error: 'Server storage is not configured' }, 503)
+  // Workspaces with a chat: chosen in Setup (in the site), or linked to their own bot (document <id>/telegram).
+  const res = await fetch(`${d.url}?or=(site->>telegramChatId.not.is.null,id.like.*%2Ftelegram)&select=id&limit=1000`, { headers: d.headers })
   if (!res.ok) return json({ error: 'Storage unavailable' }, 502)
-  const targets = (await res.json()) as { id: string; chat: string }[]
+  const ids = [...new Set(((await res.json()) as { id: string }[]).map((r) => r.id.split('/')[0]))]
   let sent = 0
-  for (const t of targets) {
-    if (!/^-?\d{1,20}$/.test(t.chat)) continue
-    const rows = await recentEvents(t.id, 7)
+  for (const id of ids) {
+    const [token, chat] = await Promise.all([botFor(id), telegramChat(id)])
+    if (!token || !chat) continue
+    const rows = await recentEvents(id, 7)
     if (!rows) continue
-    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: t.chat, text: weeklyDigest(rows).text }),
-    }).catch(() => null)
-    if (r?.ok) sent++
+    if ((await tg(token, 'sendMessage', { chat_id: chat, text: weeklyDigest(rows).text })).ok) sent++
   }
-  return json({ workspaces: targets.length, sent })
+  return json({ workspaces: ids.length, sent })
 }

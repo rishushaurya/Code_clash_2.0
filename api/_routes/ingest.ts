@@ -1,6 +1,7 @@
 // POST /api/ingest  (header x-api-key: the workspace's sensor key from Setup)  { readings: SensorReading[] }
 // The door for every other system: smart plugs, energy meters, motion sensors, people counters,
-// building management systems, Home Assistant. Readings go straight to the workspace's live twin.
+// building management systems, Home Assistant. Readings go straight to the workspace's live twin, and are
+// stored (room_inputs) so the server's minute tick sees them with no browser open.
 //
 //   curl -X POST https://<app>/api/ingest -H "x-api-key: $SENSOR_KEY" -H "content-type: application/json" \
 //     -d '{"readings":[{"roomId":"CR-101","source":"shelly","occupancy":0,"devices":[{"type":"light","on":true}],"powerW":240}]}'
@@ -9,6 +10,7 @@ import { z } from 'zod'
 import { readIngestKey } from '../_lib/auth.js'
 import { broadcast, json, logJson, rateLimit, readBody } from '../_lib/http.js'
 import { SensorSchema } from '../_lib/schemas.js'
+import { storeSensors } from './reading.js'
 
 export async function POST(req: Request) {
   const workspace = readIngestKey(req.headers.get('x-api-key') ?? '')
@@ -19,8 +21,9 @@ export async function POST(req: Request) {
   if (body instanceof Response) return body
 
   const now = Date.now()
-  const results = await Promise.all(body.readings.map((r) => broadcast(workspace, 'sensor', { ...r, ts: r.ts ?? now })))
+  const readings = body.readings.map((r) => ({ ...r, ts: Math.min(r.ts ?? now, now) }))
+  const [stored, ...results] = await Promise.all([storeSensors(workspace, readings), ...readings.map((r) => broadcast(workspace, 'sensor', r))])
   const delivered = results.filter(Boolean).length
-  logJson('info', 'ingest', { workspace, readings: body.readings.length, delivered })
-  return json({ ok: delivered === body.readings.length, received: body.readings.length, delivered }, delivered ? 200 : 502)
+  logJson('info', 'ingest', { workspace, readings: readings.length, delivered, stored })
+  return json({ ok: delivered === readings.length, received: readings.length, delivered, stored }, delivered || stored ? 200 : 502)
 }
