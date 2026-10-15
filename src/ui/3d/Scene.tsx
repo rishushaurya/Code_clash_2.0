@@ -7,13 +7,13 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { DeviceType, Room, RoomState } from '@/shared/types'
+import type { CameraConfig, DeviceType, Room, RoomState } from '@/shared/types'
 import { STATUS } from '../components/status'
 import { bbox, blockers, collide, placeDevices, roomAt, WALL, type FloorGeo, type Model, type Placed, type RoomGeo, type V2 } from './model'
 import type { Outline } from './osm'
 
 export type Mode = 'orbit' | 'walk' | 'fly'
-export type Selection = { kind: 'room'; id: string } | { kind: 'device'; id: string; roomId: string } | null
+export type Selection = { kind: 'room'; id: string } | { kind: 'device' | 'camera'; id: string; roomId: string } | null
 
 /** Design tokens read from CSS, so the model follows the light and dark themes */
 export interface Tokens {
@@ -65,6 +65,9 @@ interface Props {
   input: RefObject<Input>
   onRoom: (id: string) => void
   onDevice: (id: string, roomId: string) => void
+  /** Cameras of the workspace, drawn where they were placed */
+  cameras: Record<string, CameraConfig>
+  onCamera: (id: string, roomId: string) => void
   onPlace: (roomId: string, local: [number, number, number]) => void
   onMove: (id: string, shift: V2 | null) => void
 }
@@ -281,7 +284,7 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   return null
 }
 
-function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, onRoom, onDevice, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
+function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, cameras, onRoom, onDevice, onCamera, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
   const ref = useRef<THREE.Group>(null)
   const walls = useDisposable(() => wallGeometry(floor, false), [floor])
   const glass = useDisposable(() => wallGeometry(floor, true), [floor])
@@ -387,6 +390,26 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
         />
       ))}
       <Fixtures placed={placed} rooms={rooms} tokens={tokens} reduced={reduced} selected={selected} onDevice={placing ? undefined : onDevice} />
+      {Object.entries(cameras).map(([id, c]) => {
+        const r = floor.rooms.find((g) => g.id === c.roomId)
+        if (!r || !c.position) return null
+        const sel = selected?.kind === 'camera' && selected.id === id
+        return (
+          <mesh
+            key={id}
+            name={`Camera ${id}`}
+            position={[r.origin[0] + c.position[0], c.position[1], r.origin[1] + c.position[2]]}
+            onClick={(e) => {
+              if (placing || e.delta > 5) return
+              e.stopPropagation()
+              onCamera(id, c.roomId)
+            }}
+          >
+            <boxGeometry args={[0.16, 0.12, 0.22]} />
+            <meshStandardMaterial color={sel ? tokens.highlight : tokens.text} roughness={0.4} />
+          </mesh>
+        )
+      })}
     </group>
   )
 }
