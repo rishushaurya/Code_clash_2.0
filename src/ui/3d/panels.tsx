@@ -100,7 +100,7 @@ export function OutlinePanel({ site, outline, onOutline, onClose }: { site: Site
         </div>
       )}
       <p className="mt-3 text-xs text-muted-foreground">
-        Map data OpenStreetMap contributors (ODbL). Kept on this device.
+        Map data OpenStreetMap contributors (ODbL). Saved with the site, so every device shows it.
       </p>
     </Panel>
   )

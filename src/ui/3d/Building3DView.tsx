@@ -28,7 +28,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { deviceCounts, makeDevices, pushSite, setSite, SiteSchema, useSite } from '@/shared/site'
 import type { DeviceType, RoomState, Site } from '@/shared/types'
-import { ns } from '@/shared/workspace'
 import { send } from '@/twin/realtime'
 import { SourceBadges, StatusBadge } from '../components/status'
 import { buildModel, savePolygons, type V2 } from './model'
@@ -37,7 +36,6 @@ import { OutlinePanel, Panel, PhotoPanel } from './panels'
 import { Scene, type Input, type Mode, type SceneApi, type Selection, type Tokens } from './Scene'
 
 const DEVICE_LABEL: Record<DeviceType, string> = { light: 'Light', fan: 'Fan', ac: 'AC', projector: 'Projector', pc: 'Computer' }
-const OUTLINE_KEY = ns('pratibimb:3d-outline')
 
 function readTokens(): Tokens {
   const cs = getComputedStyle(document.documentElement)
@@ -76,14 +74,6 @@ function useMedia(q: string) {
     return () => mq.removeEventListener('change', on)
   }, [q])
   return m
-}
-
-function loadOutline(): Outline | null {
-  try {
-    return JSON.parse(localStorage.getItem(OUTLINE_KEY) ?? 'null') as Outline | null
-  } catch {
-    return null
-  }
 }
 
 /** Touch joystick: drag the knob to walk; writes into the shared input the walker reads every frame */
@@ -155,7 +145,6 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   const [panel, setPanel] = useState<'help' | 'list' | 'outline' | 'photo' | null>(null)
   const [notice, setNotice] = useState('')
   const [walkRoom, setWalkRoom] = useState<{ id: string } | null>(null)
-  const [outline, setOutlineState] = useState<Outline | null>(loadOutline)
 
   // Edit mode works on a draft; nothing reaches the site until Save.
   const [edit, setEdit] = useState(false)
@@ -193,15 +182,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     return () => clearTimeout(t)
   }, [notice])
 
-  const setOutline = (o: Outline | null) => {
-    setOutlineState(o)
-    try {
-      if (o) localStorage.setItem(OUTLINE_KEY, JSON.stringify(o))
-      else localStorage.removeItem(OUTLINE_KEY)
-    } catch {
-      // Storage blocked: the outline lasts for this visit.
-    }
-  }
+  const outline = site.outline ?? null
+  const setOutline = (o: Outline | null) => persist({ ...site, outline: o ?? undefined }, o ? 'Outline saved for every device of this workspace.' : 'Outline removed.')
 
   const fullscreen = () => (document.fullscreenElement ? void document.exitFullscreen() : void box.current?.requestFullscreen?.())
 
@@ -269,14 +251,24 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     setMoving(null)
   }
 
-  async function save(next = savePolygons(working, model, dirty)) {
+  /** Saves a whole site here, on the server and on every open screen of the workspace (the Site setup path) */
+  function persist(next: Site, done?: string) {
     const parsed = SiteSchema.safeParse(next)
-    if (!parsed.success) return setNotice(`Not saved: ${parsed.error.issues[0]?.path.join(' > ')} ${parsed.error.issues[0]?.message}`)
+    if (!parsed.success) {
+      setNotice(`Not saved: ${parsed.error.issues[0]?.path.join(' > ')} ${parsed.error.issues[0]?.message}`)
+      return false
+    }
     setSite(parsed.data)
-    discard()
-    const where = await pushSite(useSite.getState().site)
-    if (where === 'server') send('site', { ts: Date.now() })
-    setNotice(where === 'server' ? 'Saved. Every device of this workspace now shows these changes.' : 'Saved on this device.')
+    void pushSite(useSite.getState().site).then((where) => {
+      if (where === 'server') send('site', { ts: Date.now() })
+      setNotice(done ?? (where === 'server' ? 'Saved. Every device of this workspace now shows these changes.' : 'Saved on this device.'))
+    })
+    return true
+  }
+
+  function save() {
+    // The draft was copied when editing began; keep an outline chosen since then.
+    if (persist({ ...savePolygons(working, model, dirty), outline: useSite.getState().site.outline })) discard()
   }
 
   async function exportGlb() {
@@ -526,9 +518,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 site={site}
                 onClose={() => setPanel(null)}
                 onApply={(next, n) => {
-                  void save(next)
-                  setPanel(null)
-                  setNotice(`Shapes of ${n} rooms saved from the photo.`)
+                  if (persist(next, `Shapes of ${n} rooms saved from the photo.`)) setPanel(null)
                 }}
               />
             )}
@@ -620,7 +610,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
               <Button size="sm" variant="ghost" disabled={!unsaved} onClick={discard}>
                 <Undo2 /> Discard
               </Button>
-              <Button size="sm" disabled={!unsaved} onClick={() => void save()}>
+              <Button size="sm" disabled={!unsaved} onClick={save}>
                 <Save /> Save
               </Button>
             </div>
