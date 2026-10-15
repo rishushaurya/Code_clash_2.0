@@ -14,6 +14,7 @@ coverage/
 dist-ssr/
 *.local
 public/mediapipe/
+public/ort/
 edge/.venv/
 __pycache__/
 

@@ -2,7 +2,7 @@
 // twin, simulation and site (code computes, the AI words it); setup changes come back as a diff to approve.
 // Panel content only: the app shell places it in its side sheet, and the Live Twin page in a card.
 
-import { Bot, Check, FileCog, Mic, MicOff, RotateCcw, Send, Volume2, VolumeX, X } from 'lucide-react'
+import { AudioLines, Bot, Check, FileCog, Mic, MicOff, RotateCcw, Send, Volume2, VolumeX, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSite } from '@/shared/site'
 import { online } from '@/shared/workspace'
-import { canRecord, speak, startRecording, voiceError } from '../components/speech'
+import { canRecord, chooseVoice, prepareVoice, speak, startRecording, stopSpeaking, useVoice, voiceError, VOICES, type VoiceId } from '../components/speech'
 import { AiKeyHint } from './AiKeyHint'
 import { approve, ask, clearConversation, dismiss, useConversation, type Message } from './conversation'
 
@@ -148,8 +148,25 @@ export function AssistantPanel() {
   const [lang, setLang] = useState<(typeof LANGS)[number]['code']>('en')
   const [voiceOut, setVoiceOut] = useState(readSpeak)
   const [listening, setListening] = useState(false)
+  // Conversation mode: after each spoken answer the microphone opens again, and stops when the person goes quiet.
+  const [talking, setTalking] = useState(false)
+  const talkingRef = useRef(false)
+  const voice = useVoice()
   const recRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  // Fetch the natural voice early when answers are read aloud; stop talking and listening when the panel closes.
+  useEffect(() => {
+    if (voiceOut) prepareVoice()
+  }, [voiceOut])
+  useEffect(
+    () => () => {
+      talkingRef.current = false
+      stopSpeaking()
+      void recRef.current?.stop()
+    },
+    [],
+  )
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' })
@@ -167,32 +184,52 @@ export function AssistantPanel() {
   async function send(question: string) {
     setQ('')
     const m = await ask(question)
-    if (m && voiceOut) speak(m.a, LANGS.find((l) => l.code === lang)!.voice)
+    if (!m) return
+    if (voiceOut || talkingRef.current) await speak(m.a, LANGS.find((l) => l.code === lang)!.voice)
+    // Listen again, unless the person already cut in with the microphone.
+    if (talkingRef.current && !recRef.current) void listen()
   }
 
   /** Tap to speak, tap again to ask; the question is written down on the server with the workspace's speech key */
   async function listen() {
     if (recRef.current) return void recRef.current.stop()
+    // Speaking over the Assistant interrupts it, like in a real conversation.
+    stopSpeaking()
     try {
-      const rec = await startRecording(30_000)
+      const rec = await startRecording(30_000, { untilSilence: talkingRef.current })
       recRef.current = rec
       setListening(true)
       const audio = await rec.done
       recRef.current = null
       setListening(false)
+      if (!talkingRef.current && audio.size === 0) return
       const text = await transcribe(audio, lang)
       if (text) await send(text)
+      else if (talkingRef.current) setTalking((talkingRef.current = false))
     } catch (e) {
       recRef.current = null
       setListening(false)
+      setTalking((talkingRef.current = false))
       toast.error(voiceError(e))
+    }
+  }
+
+  function toggleTalking() {
+    const next = !talkingRef.current
+    setTalking((talkingRef.current = next))
+    if (next) {
+      prepareVoice()
+      void listen()
+    } else {
+      stopSpeaking()
+      void recRef.current?.stop()
     }
   }
 
   function toggleVoice() {
     const next = !voiceOut
     setVoiceOut(next)
-    if (!next) speechSynthesis?.cancel()
+    if (!next) stopSpeaking()
     try {
       localStorage.setItem(SPEAK_KEY, next ? '1' : '0')
     } catch {
@@ -265,19 +302,51 @@ export function AssistantPanel() {
             <Send aria-hidden />
           </Button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <label htmlFor="assistant-lang">Language</label>
+          <select id="assistant-lang" value={lang} onChange={(e) => setLang(e.target.value as typeof lang)} className="h-8 rounded-md border bg-card px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring">
+            {LANGS.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          {lang === 'en' && (
+            <>
+              <label htmlFor="assistant-voice">Voice</label>
+              <select
+                id="assistant-voice"
+                value={voice.voice}
+                onChange={(e) => chooseVoice(e.target.value as VoiceId)}
+                className="h-8 rounded-md border bg-card px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                {VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <label htmlFor="assistant-lang">Voice</label>
-            <select id="assistant-lang" value={lang} onChange={(e) => setLang(e.target.value as typeof lang)} className="h-8 rounded-md border bg-card px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring">
-              {LANGS.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center gap-1">
             <Button type="button" variant="ghost" size="sm" className="h-8" onClick={toggleVoice} aria-pressed={voiceOut}>
               {voiceOut ? <Volume2 aria-hidden /> : <VolumeX aria-hidden />} Read answers aloud
             </Button>
+            {canRecord && online() && (
+              <Button
+                type="button"
+                variant={talking ? 'default' : 'ghost'}
+                size="sm"
+                className="h-8"
+                onClick={toggleTalking}
+                aria-pressed={talking}
+                title="Talk back and forth: the microphone opens after each answer and stops when you go quiet"
+              >
+                <AudioLines aria-hidden /> {talking ? 'End conversation' : 'Talk hands-free'}
+              </Button>
+            )}
           </div>
           {messages.length > 0 && (
             <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearConversation} disabled={busy}>
@@ -285,6 +354,20 @@ export function AssistantPanel() {
             </Button>
           )}
         </div>
+        {(voiceOut || talking) && lang === 'en' && voice.state !== 'ready' && (
+          <p className="text-xs text-muted-foreground" role="status">
+            {voice.state === 'loading'
+              ? `Getting the natural voice ready, ${voice.progress} %. It downloads once and runs on this device; until then the device's own voice speaks.`
+              : voice.state === 'failed'
+                ? "The natural voice could not start on this device, so its own voice speaks."
+                : 'The natural voice starts with the first answer.'}
+          </p>
+        )}
+        {talking && (
+          <p className="text-xs font-medium text-ai" role="status">
+            {listening ? 'Listening. Just talk; I answer when you pause.' : voice.speaking ? 'Speaking. Tap the microphone to cut in.' : busy ? 'Thinking.' : 'Conversation on.'}
+          </p>
+        )}
       </form>
     </div>
   )
