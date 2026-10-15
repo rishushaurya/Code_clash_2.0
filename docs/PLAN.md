@@ -367,6 +367,24 @@ Only the Cameras and 3D sessions may add npm packages; the main session settles 
 | `GET /api/history?room=&from=&to=` | Hourly roll-ups for Trends |
 | `GET /api/doctor` | Every connection's check: `{ name, ok, detail, fix }[]` |
 
+**Pages** (Shell owns the routes; every session links with these paths):
+
+| Path | Page |
+| --- | --- |
+| `/` | Overview |
+| `/building` | Building 3D (full screen with `?fs=1`) |
+| `/rooms`, `/room/:id` | Rooms list, room detail |
+| `/alerts` | Alerts |
+| `/lab`, `/reports`, `/trends` | Scenario Lab, Reports, Trends |
+| `/camera`, `/camera/:room/:cam` | Cameras (unchanged, QR codes depend on it) |
+| `/connections`, `/connections/doctor` | Devices and integrations, Connection doctor |
+| `/settings/site`, `/settings/keys`, `/settings/team` | Site setup (today's `/setup`, which redirects), Keys and AI, Team and access |
+| `/live` | Public view (unchanged) |
+
+**Floor plan photo** (AI builds, 3D calls): `POST /api/ai/floorplan` with `{ image }` (a data URL) answers `{ floors: { name, rooms: { name, x, y, w, h }[] }[] }`, positions as fractions of the picture, numbers checked like Set up with AI.
+
+**Browser-side keys:** a Google Maps key is used by the browser by design (restrict it to your domain in Google Cloud). `GET /api/keys/client` gives signed-in members only the `google_maps` value; no other key ever reaches the browser.
+
 **Cross-session imports:** `coverage(room, cameras)` from `src/cv/coverage.ts` (Cameras owns); `<Building3DView rooms onSelect />` from `@/ui/3d` (3D owns); `<AssistantPanel />` from `@/ui/assistant` (AI owns). Each exists now as a working first version, so every branch builds on its own.
 
 **Database** (`supabase/schema.sql`, run once in the Supabase SQL editor): `room_inputs`, `twin_state`, `room_hourly`, `secrets`, `settings_log`, and the commented `pg_cron` job.

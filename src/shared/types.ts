@@ -287,7 +287,7 @@ export interface TwinEvent {
 // never sent back to the browser; only whether it is set, its last four characters, and its last test.
 
 export type AiProvider = 'groq' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'custom'
-export type KeyName = AiProvider | 'telegram' | 'google_maps' | 'command_webhook'
+export type KeyName = AiProvider | 'telegram' | 'google_maps' | 'command_webhook' | 'shelly_cloud' | 'home_assistant'
 /** What an AI call is for; each can use a different provider and model */
 export type AiTask = 'chat' | 'report' | 'vision' | 'speech'
 
@@ -295,7 +295,7 @@ export interface KeyStatus {
   name: KeyName
   set: boolean
   last4?: string
-  /** For 'custom' (any OpenAI-compatible API) and 'command_webhook' (its URL) */
+  /** For 'custom' (any OpenAI-compatible API), 'command_webhook', 'shelly_cloud' and 'home_assistant': the server address */
   baseUrl?: string
   testedAt?: number
   ok?: boolean
