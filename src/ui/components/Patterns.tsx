@@ -3,16 +3,17 @@
 
 import { Sparkles, TrendingUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { copilotAnswer } from '@/ai/client'
+import { AiFailed, AiNeedsKey, copilotAnswer } from '@/ai/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DAY, patternFacts, templatePatterns } from '@/ai/patterns'
 import { wastePatterns } from '@/twin/usage'
+import { AiKeyHint } from '../assistant/AiKeyHint'
 
 export function Patterns() {
   const [list, setList] = useState(() => wastePatterns())
-  const [summary, setSummary] = useState<{ text: string; ai: boolean } | 'loading' | null>(null)
+  const [summary, setSummary] = useState<{ text: string; ai: boolean; problem?: string } | 'loading' | null>(null)
   useEffect(() => {
     const t = setInterval(() => setList(wastePatterns()), 60_000)
     return () => clearInterval(t)
@@ -23,8 +24,8 @@ export function Patterns() {
     try {
       const { answer } = await copilotAnswer('In two sentences, explain when and where empty rooms are left on, and the single most useful action.', { patterns: patternFacts(list) })
       setSummary({ text: answer, ai: true })
-    } catch {
-      setSummary({ text: templatePatterns(list), ai: false })
+    } catch (e) {
+      setSummary({ text: templatePatterns(list), ai: false, problem: e instanceof AiNeedsKey ? 'no-key' : e instanceof AiFailed ? e.message : undefined })
     }
   }
 
@@ -64,6 +65,7 @@ export function Patterns() {
             <span className="mt-1 block text-xs text-muted-foreground">{summary.ai ? 'Written by AI from observed data' : 'Written offline from observed data'}</span>
           </p>
         )}
+        {summary && summary !== 'loading' && summary.problem && <AiKeyHint problem={summary.problem} />}
       </CardContent>
     </Card>
   )

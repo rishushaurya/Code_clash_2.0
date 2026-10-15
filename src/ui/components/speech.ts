@@ -41,6 +41,16 @@ export function micError(e: unknown) {
   return 'The microphone could not start. You can type instead.'
 }
 
+/** Why voice input failed: the microphone, a missing speech key, or the provider's reason */
+export function voiceError(e: unknown) {
+  const name = e instanceof Error ? e.name : ''
+  if (['NotAllowedError', 'NotFoundError', 'NotReadableError'].includes(name)) return micError(e)
+  const message = e instanceof Error ? e.message : ''
+  if (message.startsWith('Add an AI key')) return 'Voice needs a Groq or OpenAI key in Settings, Keys and AI. You can type instead.'
+  if (message && !message.startsWith('/api') && !message.startsWith('offline')) return `${message}. You can type instead.`
+  return 'The voice service is not available just now. You can type instead.'
+}
+
 /** Read text aloud, if the device can; the text is on screen either way */
 export function speak(text: string, lang = 'en-IN') {
   try {

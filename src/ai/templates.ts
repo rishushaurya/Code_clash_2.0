@@ -1,5 +1,5 @@
-// Offline fallback: recommendations written by code from the facts pack.
-// Used when the AI is unreachable, so the demo never shows an empty card.
+// Recommendations written by code from the facts pack. The title, action and priority always come from here
+// (the rule decides what to do); the AI may rewrite only the reason. Offline, the whole card comes from here.
 
 import type { FactsPack, Recommendation } from '@/shared/types'
 import { formatMoney } from '@/twin/energy'
@@ -27,8 +27,8 @@ export function templateRecommendation(f: FactsPack): Recommendation {
         title: `Ventilate ${f.roomId}`,
         action:
           f.outdoorAqi !== undefined && f.outdoorAqi > 100
-            ? `Outdoor air is poor, so run the exhaust or ceiling fans in ${f.roomName} rather than opening windows.`
-            : `Open the windows in ${f.roomName} for 10 minutes, or take a short break.`,
+            ? `Ventilate ${f.roomName} with the exhaust or ceiling fans; outdoor air is poor, so keep the windows shut.`
+            : `Ventilate ${f.roomName}: open the windows for 10 minutes, or take a short break outside.`,
         reason: `Indoor CO2 is ${f.co2ppm} ppm with ${f.headcount} people, above the 1000 ppm guideline.`,
         priority: 'medium',
       }

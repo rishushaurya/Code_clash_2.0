@@ -55,8 +55,8 @@ export function templateReport(f: ReturnType<typeof reportFacts>): Report {
       },
       {
         heading: 'Indoor air quality',
-        paragraphs: [f.indoorAir.length ? 'Peak indoor CO2 this session, estimated from live head-counts:' : 'No head-counts this session, so no indoor CO2 estimate.'],
-        bullets: f.indoorAir.map((x) => `${x.roomId}: ${x.peakPpm} ppm${x.peakPpm > 1000 ? ', above the 1000 ppm guideline' : ''}`),
+        paragraphs: [f.indoorAir.length ? 'Peak indoor CO2 this session, measured by CO2 sensors where marked, otherwise estimated from live head-counts:' : 'No CO2 sensor readings or head-counts this session, so indoor air is unknown.'],
+        bullets: f.indoorAir.map((x) => `${x.roomId}: ${x.peakPpm} ppm, ${x.measured ? 'measured' : 'estimated'}${x.peakPpm > 1000 ? ', above the 1000 ppm guideline' : ''}`),
       },
       {
         heading: 'Recommendations with cost-benefit',

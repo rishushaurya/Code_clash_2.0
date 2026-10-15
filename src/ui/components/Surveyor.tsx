@@ -4,13 +4,14 @@
 import { Check, ImagePlus, ScanSearch } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { surveyRoom, type SurveyItem } from '@/ai/client'
+import { AiFailed, AiNeedsKey, surveyRoom, type SurveyItem } from '@/ai/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { setDeviceCounts, type DeviceCounts } from '@/shared/site'
 import type { DeviceType, Room } from '@/shared/types'
+import { AiKeyHint } from '../assistant/AiKeyHint'
 import { ErrorState } from './states'
 
 const NAMES: Record<DeviceType, string> = { light: 'Lights', fan: 'Fans', ac: 'ACs', projector: 'Projectors', pc: 'PCs' }
@@ -42,9 +43,11 @@ export function Surveyor({ room }: { room: Room }) {
       setPhase('done')
     } catch (e) {
       setError(
-        e instanceof Error && e.message === 'not-configured'
-          ? 'The AI Surveyor needs GEMINI_API_KEY (or GROQ_API_KEY) on the server.'
-          : 'The AI could not read this photo. Try a sharper, well-lit picture of the ceiling.',
+        e instanceof AiNeedsKey
+          ? 'no-key'
+          : e instanceof AiFailed
+            ? e.message
+            : 'The AI could not read this photo. Try a sharper, well-lit picture of the ceiling.',
       )
       setPhase('error')
     }
@@ -72,7 +75,7 @@ export function Surveyor({ room }: { room: Room }) {
         </Label>
         <p className="text-xs text-muted-foreground">Photograph fixtures only, never people. Unlike camera frames, this photo is sent to the AI provider.</p>
         {phase === 'loading' && <Skeleton className="aspect-video w-full" aria-label="Surveying the photo" />}
-        {phase === 'error' && <ErrorState message={error} onRetry={() => setPhase('idle')} />}
+        {phase === 'error' && (error === 'no-key' ? <AiKeyHint problem={error} /> : <ErrorState message={error} onRetry={() => setPhase('idle')} />)}
         {phase === 'done' && (
           <>
             <div className="relative overflow-hidden rounded-md">
