@@ -2,7 +2,7 @@
 // command webhook. Keys go to the server, which stores them encrypted; the browser only ever sees the last four
 // characters and the last test. Each card has an id (#telegram, #groq) so the place a key is used can link here.
 
-import { ArrowDown, ArrowUp, Bot, ExternalLink, Home, KeyRound, Map as MapIcon, MessageCircle, Plug, Save, Send, Trash2, Webhook, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bot, ExternalLink, Home, KeyRound, Map as MapIcon, MessageCircle, Plug, Save, Send, ServerCog, Trash2, Webhook, type LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import type { AiProvider, AiSettings, AiTask, KeyName, KeyStatus } from '@/shared/types'
 import { AI_PROVIDERS, callApi, useApi, type KeysResponse } from '../api'
-import { ErrorState, NotYet, PageHeader, PanelSkeleton } from '../components/states'
+import { ErrorState, PageHeader, PanelSkeleton } from '../components/states'
 import { StatusLight, type Light } from '../components/status'
 import { useScrollToHash } from '../nav'
 
@@ -348,7 +348,9 @@ function AiRouting({ settings, keys, deployment, models, disabled, onSaved }: { 
             <span id="deploy-help" className="block text-xs text-muted-foreground">
               {Object.values(deployment).some(Boolean)
                 ? `This deployment has keys for ${AI_PROVIDERS.filter((p) => deployment[p]).map((p) => INFO[p].title).join(', ')}. Its operator may switch this off.`
-                : 'This deployment has no AI keys of its own.'}
+                : Object.keys(deployment).length
+                  ? 'This deployment has no AI keys of its own.'
+                  : 'Which keys the deployment has shows here once key storage is on.'}
             </span>
           </span>
         </label>
@@ -387,11 +389,12 @@ export default function KeysSettings() {
     <div className="space-y-6">
       <PageHeader title="Keys and AI" description="Bring your own keys. They are stored encrypted on the server, used only for this workspace, and never shown again after saving." />
       {disabled && (
-        <Card>
-          <CardContent>
-            <NotYet what="Key storage" reason={res.reason} />
-          </CardContent>
-        </Card>
+        <p role="status" className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm">
+          <ServerCog className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
+          {res.reason === 'local'
+            ? 'Keys need an online workspace: this one lives in this browser only. The forms below show what you can add.'
+            : "Key storage comes with the server update. Until then the deployment's own keys are used, and the forms below show what you can add."}
+        </p>
       )}
       <section aria-labelledby="ai-heading" className="space-y-3">
         <h2 id="ai-heading" className="font-heading text-xl font-semibold">

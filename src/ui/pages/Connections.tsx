@@ -70,10 +70,11 @@ export default function Connections() {
   const [status] = useApi<ServerStatus>('/api/status')
   const [keys] = useApi<KeysResponse>('/api/keys')
   const cameras = useCameras((c) => Object.keys(c.cameras).length)
-  const readings = useTwin((s) => Object.values(s.readings))
+  const readings = Object.values(useTwin((s) => s.readings))
   const sensorRooms = useTwin((s) => Object.keys(s.sensors).length)
   const relay = useRelay((s) => s.status)
   const relayRooms = useSite((s) => s.site.rooms.filter((r) => r.hasRealRelay).length)
+  const chatId = useSite((s) => s.site.telegramChatId)
   const [sensorKey, setSensorKey] = useState('')
   const [now] = useState(Date.now)
 
@@ -99,7 +100,9 @@ export default function Connections() {
   const liveCams = readings.filter((r) => now - r.ts < 60_000)
   const edge = readings.some((r) => r.sourceKind === 'python_edge')
 
-  const telegram = keyLight('telegram', s?.telegram)
+  // The deployment's bot only reaches this workspace once its chat id is in site settings.
+  const telegram: [Light, string] =
+    keyList?.find((x) => x.name === 'telegram')?.set || !s?.telegram ? keyLight('telegram') : chatId ? ['ok', "Deployment's bot, chat linked"] : ['off', 'No chat linked yet']
   const shelly = keyLight('shelly_cloud')
   const ha = keyLight('home_assistant')
   const webhook = keyLight('command_webhook', s?.commandWebhook)

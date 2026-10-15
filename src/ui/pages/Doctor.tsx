@@ -29,9 +29,9 @@ const FALLBACK: { key: keyof ServerStatus; name: string; fix: string }[] = [
 
 function Row({ c }: { c: Check }) {
   return (
-    <li className="grid gap-1 py-3 sm:grid-cols-[minmax(0,14rem)_1fr] sm:gap-4">
+    <li className="grid gap-1 py-3 sm:grid-cols-[minmax(0,20rem)_1fr] sm:gap-4">
       <div className="flex items-start gap-2">
-        <StatusLight light={c.ok ? 'ok' : 'warn'} label={c.ok ? 'OK' : 'Needs a fix'} className="w-24 shrink-0" />
+        <StatusLight light={c.ok ? 'ok' : 'warn'} label={c.ok ? 'OK' : 'Needs a fix'} className="w-28 shrink-0" />
         <span className="font-medium">{c.name}</span>
       </div>
       <div className="space-y-0.5 text-sm">

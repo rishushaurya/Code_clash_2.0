@@ -37,7 +37,7 @@ import { joinLink, online, publicLink, SESSION, signOut } from '@/shared/workspa
 import { useRealtime } from '@/twin/realtime'
 import { useTwin } from '@/twin/store'
 import { AssistantPanel } from '@/ui/assistant'
-import './alerts'
+import { useOpenAlertCount } from './alerts'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/states'
 import { ago, freshness, lastInputAt } from './live'
@@ -182,7 +182,7 @@ function WorkspaceMenu({ onInvite }: { onInvite: () => void }) {
 function AppSidebar() {
   const { pathname } = useLocation()
   const site = useSite((s) => s.site)
-  const alerts = useTwin((s) => s.alerts.length)
+  const alerts = useOpenAlertCount()
   const { setOpenMobile } = useSidebar()
   const current = pageOf(pathname)
   return (
@@ -291,7 +291,7 @@ const TABS = ['/', '/rooms', '/alerts', '/camera']
 function TabBar() {
   const { pathname } = useLocation()
   const { setOpenMobile } = useSidebar()
-  const alerts = useTwin((s) => s.alerts.length)
+  const alerts = useOpenAlertCount()
   const current = pageOf(pathname)
   const pages = NAV.flatMap((g) => g.pages).filter((p) => TABS.includes(p.to))
   return (
@@ -330,7 +330,7 @@ function readSidebarDefault() {
 
 export function Layout() {
   const start = useTwin((s) => s.start)
-  const alerts = useTwin((s) => s.alerts.length)
+  const alerts = useOpenAlertCount()
   const [dark, setDark] = useTheme()
   const [assistant, setAssistant] = useState(false)
   const [palette, setPalette] = useState(false)
@@ -405,7 +405,7 @@ export function Layout() {
             <SheetTitle className="flex items-center gap-2">
               <Bot className="size-4 text-highlight" aria-hidden /> Assistant
             </SheetTitle>
-            <SheetDescription>Asks this building's live data. It never changes anything without your approval.</SheetDescription>
+            <SheetDescription>Answers from this building's live data. It never changes anything without your approval.</SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <ErrorBoundary label="the Assistant">

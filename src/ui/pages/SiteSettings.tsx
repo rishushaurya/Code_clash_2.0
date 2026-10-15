@@ -154,10 +154,22 @@ const ALL_CURRENCIES: string[] = (Intl as { supportedValuesOf?: (k: string) => s
 export default function SiteSettings() {
   const saved = useSite((s) => s.site)
   const [draft, setDraft] = useState<Site>(() => loadDraft(saved))
+  // The site as last saved or loaded. A save comes back from the server with its keys in another order, so the
+  // draft is compared with this, not with the store.
+  const [base, setBase] = useState(saved)
+  const [seen, setSeen] = useState(saved)
   const [errors, setErrors] = useState('')
   const [currencyNote, setCurrencyNote] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(base)
+  // Saved on another device (or re-read after our own save): follow it unless there are edits here.
+  if (saved !== seen) {
+    setSeen(saved)
+    if (!dirty) {
+      setBase(saved)
+      setDraft(saved)
+    }
+  }
   const [observed] = useState(observedLeftOnShare)
   const [observedHours] = useState(observedOpenHours)
   useScrollToHash()
@@ -211,6 +223,7 @@ export default function SiteSettings() {
     if (new Set(next.rooms.map((r) => r.id)).size !== next.rooms.length) return setErrors('Two rooms share an id. Every room id must be unique.')
     setErrors('')
     setSite(parsed.data)
+    setBase(useSite.getState().site)
     setDraft(useSite.getState().site)
     void pushSite(useSite.getState().site).then((where) => {
       // Open screens of the workspace fetch the new rooms at once.
@@ -278,12 +291,20 @@ export default function SiteSettings() {
                   value={draft.location}
                   onPick={(p) => {
                     const preset = COUNTRY_PRESETS[p.country_code ?? '']
-                    setCurrencyNote(preset ? `Set to ${preset.currency} for ${p.country}.` : `Pratibimb does not know the currency of ${p.country ?? 'this place'} yet. Choose it below.`)
+                    // Money values typed for another country (or defaulted before any location) no longer apply (U2).
+                    const newCountry = p.country_code !== draft.location?.countryCode
+                    // A tariff or grid factor from the previous country is wrong here: clear it unless the new country has one.
+                    const stale = newCountry && draft.location !== null
+                    setCurrencyNote(
+                      (preset ? `Set to ${preset.currency} for ${p.country}.` : `Pratibimb does not know the currency of ${p.country ?? 'this place'} yet. Choose it here.`) +
+                        (stale && !preset?.tariffPerKwh ? ' Enter the energy charge from your bill.' : ''),
+                    )
                     update({
+                      ...(stale && { tariffPerKwh: 0, gridKgPerKwh: 0 }),
                       location: { name: [p.name, p.country].filter(Boolean).join(', '), lat: p.latitude, lon: p.longitude, countryCode: p.country_code },
                       ...(preset && { currency: preset.currency }),
-                      ...(preset?.tariffPerKwh && !draft.tariffPerKwh && { tariffPerKwh: preset.tariffPerKwh }),
-                      ...(preset?.gridKgPerKwh && !draft.gridKgPerKwh && { gridKgPerKwh: preset.gridKgPerKwh }),
+                      ...(preset?.tariffPerKwh && (newCountry || !draft.tariffPerKwh) && { tariffPerKwh: preset.tariffPerKwh }),
+                      ...(preset?.gridKgPerKwh && (newCountry || !draft.gridKgPerKwh) && { gridKgPerKwh: preset.gridKgPerKwh }),
                     })
                   }}
                 />
@@ -476,7 +497,7 @@ export default function SiteSettings() {
           <Section id="rooms" icon={DoorOpen} title="Rooms and devices" description="Start from a template, then match the counts to what is really in each room. The AI Surveyor on a room's page can count from a photo.">
             <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Add a room from a template">
               {(Object.keys(ROOM_TEMPLATES) as RoomType[]).map((t) => (
-                <Button key={t} size="sm" variant="outline" onClick={() => addRoom(t)} title={`Add a ${ROOM_TEMPLATES[t].label.toLowerCase()} with typical seats and devices`}>
+                <Button key={t} size="sm" variant="outline" onClick={() => addRoom(t)} title={`${ROOM_TEMPLATES[t].label}: typical seats and devices, change them after`}>
                   <Plus aria-hidden /> {ROOM_TEMPLATES[t].label}
                 </Button>
               ))}
@@ -486,8 +507,8 @@ export default function SiteSettings() {
               {draft.rooms.map((room) => {
                 const counts = deviceCounts(room)
                 return (
-                  <div key={room.id} className="space-y-3 rounded-xl border p-3">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)_5rem_5rem_auto]">
+                  <div key={room.id} className="@container space-y-3 rounded-xl border p-3">
+                    <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-[5rem_minmax(0,1fr)_minmax(0,1fr)_5rem_5rem_auto]">
                       <div className="space-y-1">
                         <Label className="text-xs" htmlFor={`${room.id}-id`}>
                           Id
@@ -550,7 +571,7 @@ export default function SiteSettings() {
                         </Button>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    <div className="grid grid-cols-3 gap-2 @lg:grid-cols-5">
                       {TYPES.map((t) => (
                         <div key={t} className="space-y-1">
                           <Label className="text-xs" htmlFor={`${room.id}-${t}`}>
@@ -627,7 +648,7 @@ export default function SiteSettings() {
             <Button
               variant="ghost"
               onClick={() => {
-                setDraft(saved)
+                setDraft(base)
                 setErrors('')
               }}
             >

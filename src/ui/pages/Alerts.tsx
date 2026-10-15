@@ -58,7 +58,7 @@ function AlertCard({ alert, rec, state, resolvedAt }: { alert: Alert; rec?: Reco
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <Eye className="size-3.5" aria-hidden /> Evidence
             </p>
-            <ul className="num list-disc space-y-0.5 pl-5 text-sm">
+            <ul className="list-disc space-y-0.5 pl-5 text-sm tabular-nums">
               {evidence(alert).map((l) => (
                 <li key={l}>{l}</li>
               ))}

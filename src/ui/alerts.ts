@@ -32,3 +32,10 @@ useTwin.subscribe((s, prev) => {
     resolved: [...gone.map((alert) => ({ alert, rec: typeof prev.recs[alert.id] === 'object' ? (prev.recs[alert.id] as Recommendation) : undefined, resolvedAt: now })), ...st.resolved].slice(0, 200),
   }))
 })
+
+/** Open alerts nobody has acknowledged: the count on the bell and in the menu */
+export function useOpenAlertCount() {
+  const alerts = useTwin((s) => s.alerts)
+  const acked = useAlertLog((s) => s.acked)
+  return alerts.filter((a) => !acked[a.id]).length
+}

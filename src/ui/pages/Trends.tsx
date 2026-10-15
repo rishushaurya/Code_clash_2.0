@@ -84,7 +84,7 @@ export default function Trends() {
                   <BarChart data={rows} margin={{ left: 0, right: 8 }}>
                     <CartesianGrid vertical={false} stroke="var(--border-c)" />
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-                    <YAxis width={44} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} unit=" kWh" />
+                    <YAxis width={36} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
                     <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border-c)', borderRadius: 8 }} />
                     <Legend />
                     <Bar dataKey="usedKwh" name="Used, kWh" stackId="e" fill="var(--highlight)" />
