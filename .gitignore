@@ -16,6 +16,8 @@ dist-ssr/
 public/mediapipe/
 public/ort/
 edge/.venv/
+# Local storage of a copy running without Supabase (workspaces, keys, history)
+.pratibimb-data/
 __pycache__/
 
 # AI tooling (internal, not project code)

@@ -77,46 +77,10 @@ Changing `WORKSPACE_SECRET` later signs everyone out and changes every sensor ke
 ## 4. Supabase
 
 1. supabase.com, New project. Pick the region closest to your buildings and a strong database password.
-2. SQL Editor, New query, paste all of [`supabase/schema.sql`](../supabase/schema.sql), Run. It creates `workspaces`, `sites`, `events`, `room_inputs`, `twin_state`, `room_hourly`, `secrets` and `settings_log`, all with row-level security on and no public access. Then run the SQL in section 4a.
+2. SQL Editor, New query, paste all of [`supabase/schema.sql`](../supabase/schema.sql), Run. It creates `workspaces`, `sites`, `events`, `room_inputs`, `twin_state`, `room_hourly`, `secrets` and `settings_log`, `sessions` and `rate_limits`, all with row-level security on and no public access. It is safe to run again after an update.
 3. Project Settings, Data API: copy the Project URL. Project Settings, API Keys: copy the publishable key and the secret key (press the eye icon, then copy). The legacy `anon` and `service_role` keys also work, but Supabase is retiring them.
 
-## 4a. Sessions, roles and shared rate limits
-
-Run this too, in a new query (safe to run again). Until it runs, sign-in still works, but sessions cannot be listed or signed out, and rate limits count per server instance only.
-
-```sql
--- Signed-in sessions, so an owner can list them and sign them out; the token names its row.
-create table if not exists public.sessions (
-  id uuid primary key,
-  workspace text not null,
-  role text not null check (role in ('owner', 'manager', 'viewer')),
-  label text,
-  created_at timestamptz not null default now(),
-  revoked_at timestamptz
-);
-create index if not exists sessions_ws_idx on public.sessions (workspace);
-alter table public.sessions enable row level security;
-
--- Rate limits shared by every server instance. The key is a keyed hash of route and address, never the address.
-create table if not exists public.rate_limits (
-  key text primary key,
-  window_start timestamptz not null default now(),
-  hits integer not null default 0
-);
-alter table public.rate_limits enable row level security;
-
-create or replace function public.rate_hit(p_key text, p_window_s integer)
-returns integer language sql as $$
-  insert into public.rate_limits as r (key, window_start, hits) values (p_key, now(), 1)
-  on conflict (key) do update set
-    hits = case when r.window_start < now() - make_interval(secs => p_window_s) then 1 else r.hits + 1 end,
-    window_start = case when r.window_start < now() - make_interval(secs => p_window_s) then now() else r.window_start end
-  returning hits;
-$$;
-revoke execute on function public.rate_hit(text, integer) from public, anon, authenticated;
-```
-
-## 4b. The twin around the clock
+## 4a. The twin around the clock
 
 The server works out every room once a minute, so alerts, Telegram, automatic switch-off and history continue when every browser is closed. Supabase calls `/api/tick` with `pg_cron` and `pg_net` (both on the free plan):
 
@@ -231,5 +195,5 @@ Open `http://localhost:5173`. Without Supabase keys, the first page keeps the wo
 | AI cards say they came from a template | No AI key, the provider's free quota is used up for now, or the AI's answer failed the number check; the template is the safe fallback. |
 | Telegram stays quiet | The webhook was not registered, the chat id is not saved in Setup, or the bot is not in the group. |
 | Not sure what is wrong | Open Connections, Connection doctor (`/api/doctor`): it tests storage, the tick, every key, Telegram, plugs, Home Assistant and each camera now, and says what to fix. |
-| Alerts stop when the browser is closed | The minute tick is not scheduled, or `CRON_SECRET` differs between Vercel and the SQL in section 4b. `/api/status` shows `serverTick`. |
+| Alerts stop when the browser is closed | The minute tick is not scheduled, or `CRON_SECRET` differs between Vercel and the SQL in section 4a. `/api/status` shows `serverTick`. |
 | "Your session has ended" on the sign-in page | Sessions last 30 days, and changing `WORKSPACE_SECRET` ends all of them. The app signs the device out and says so; open the workspace again with its name and password. Nothing saved is lost. |

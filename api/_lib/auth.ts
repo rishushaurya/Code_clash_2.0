@@ -4,13 +4,16 @@
 // derived from WORKSPACE_SECRET, so nothing else needs storing and nobody can guess them.
 
 import { createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
+import { localMode } from './db.js'
+import { localSecret } from './local.js'
 
 const TOKEN_DAYS = 30
 const ID = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/
 
 const secret = () => {
   // Trimmed: a value pasted into a dashboard often carries a line break.
-  const s = process.env.WORKSPACE_SECRET?.trim()
+  // Running locally without it, this computer's own secret stands in, so workspaces work out of the box.
+  const s = process.env.WORKSPACE_SECRET?.trim() || (localMode() ? localSecret() : undefined)
   return s && s.length >= 32 ? s : null
 }
 export const authConfigured = () => secret() !== null

@@ -13,6 +13,19 @@ function devApi(): Plugin {
     configureServer(server) {
       // Tests run without the real keys, so they never reach live services.
       if (!process.env.VITEST) for (const [k, v] of Object.entries(loadEnv('development', process.cwd(), ''))) process.env[k] ??= v
+      // Without Supabase there is no cron: the dev server runs the twin's minute tick itself.
+      const tick = setInterval(async () => {
+        try {
+          const db = await server.ssrLoadModule('/api/_lib/db.ts')
+          if (!db.localMode()) return
+          const { route } = await server.ssrLoadModule('/api/router.ts')
+          await route(new Request('http://localhost/api/tick', { method: 'POST', headers: { authorization: `Bearer ${db.cronSecret()}` } }))
+        } catch (e) {
+          server.config.logger.warn(`[tick] ${String(e)}`)
+        }
+      }, 60_000)
+      if (process.env.VITEST) clearInterval(tick)
+      server.httpServer?.once('close', () => clearInterval(tick))
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith('/api/')) return next()
         try {

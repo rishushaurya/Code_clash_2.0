@@ -3,7 +3,7 @@
 
 import type { KeyName, Site } from '../../src/shared/types'
 import { authConfigured } from '../_lib/auth.js'
-import { readDoc, rows, storageProblem, supabase, telegramChat } from '../_lib/db.js'
+import { localMode, readDoc, rows, storageProblem, storageReady, telegramChat } from '../_lib/db.js'
 import { json, limit, requireRole } from '../_lib/http.js'
 import { aiCandidates, testKey, workspaceKeys } from '../_lib/keys.js'
 import { readConnections } from './connections.js'
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
 
   const problem = storageProblem()
   const beat = await rows<{ updated_at: string }>('twin_state?workspace=eq._tick&select=updated_at')
-  add('Server storage', Boolean(supabase()) && !problem && beat !== null, problem ?? (beat === null ? 'Supabase did not answer, or the tables are missing' : 'Supabase answers'), 'Check the Supabase keys on the server and run supabase/schema.sql in the Supabase SQL editor (docs/DEPLOY.md, section 4).')
+  add('Server storage', storageReady() && !problem && beat !== null, problem ?? (beat === null ? 'Supabase did not answer, or the tables are missing' : localMode() ? 'Kept in a local file on this computer (.pratibimb-data)' : 'Supabase answers'), 'Check the Supabase keys on the server and run supabase/schema.sql in the Supabase SQL editor (docs/DEPLOY.md, section 4).')
   add('Workspace secret', authConfigured(), authConfigured() ? 'Set' : 'Missing or shorter than 32 characters', 'Set WORKSPACE_SECRET on the server (docs/DEPLOY.md, section 3).')
   add('Live channel', Boolean(process.env.VITE_SUPABASE_ANON_KEY), process.env.VITE_SUPABASE_ANON_KEY ? 'Phones, cameras and sensors reach the twin over the internet' : 'No public Supabase key', 'Set VITE_SUPABASE_ANON_KEY and deploy again.')
   const tickAt = beat?.[0] ? Date.parse(beat[0].updated_at) : null

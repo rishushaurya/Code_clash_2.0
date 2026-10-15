@@ -8,7 +8,7 @@
 
 import { z } from 'zod'
 import { authConfigured, channels, checkPassword, hashPassword, ingestKey, newSessionId, readInvite, signInvite, signToken, workspaceId, type Role } from '../_lib/auth.js'
-import { rest, rows, settingsLog, storageProblem, table } from '../_lib/db.js'
+import { rest, rows, settingsLog, storageProblem, storageReady } from '../_lib/db.js'
 import { forgetSession, json, limit, logJson, readBody, requireRole, storageError } from '../_lib/http.js'
 import { getKey } from '../_lib/keys.js'
 import { tg } from './telegram.js'
@@ -38,9 +38,8 @@ async function session(req: Request, id: string, name: string, role: Role) {
 export async function POST(req: Request) {
   const limited = await limit(req, 10)
   if (limited) return limited
-  const d = table('workspaces')
   // The browser falls back to a workspace kept on this device when the server cannot hold one.
-  if (!d || !authConfigured()) return json({ error: 'This server has no workspace storage', local: true }, 503)
+  if (!storageReady() || !authConfigured()) return json({ error: 'This server has no workspace storage', local: true }, 503)
   // A wrong setting would otherwise pass as "Name or password is wrong" (the public key reads an empty table).
   if (storageProblem()) return storageError(null)
   const body = await readBody(req, Body, 1_000)
@@ -58,20 +57,20 @@ export async function POST(req: Request) {
   const id = workspaceId(body.name)
   if (!id) return json({ error: 'Use letters or digits in the name' }, 400)
   if (body.mode === 'create') {
-    const res = await fetch(d.url, {
+    const res = await rest('workspaces', {
       method: 'POST',
-      headers: { ...d.headers, prefer: 'return=minimal' },
+      headers: { prefer: 'return=minimal' },
       body: JSON.stringify({ id, name: body.name, password_hash: await hashPassword(body.password) }),
-    }).catch((e: Error) => e)
-    if (res instanceof Response && res.status === 409) return json({ error: 'That name is taken. Open it with its password, or choose another name.' }, 409)
-    if (!(res instanceof Response) || !res.ok) return storageError(res)
+    })
+    if (res?.status === 409) return json({ error: 'That name is taken. Open it with its password, or choose another name.' }, 409)
+    if (!res?.ok) return storageError(res)
     logJson('info', 'workspace created', { id })
     return session(req, id, body.name, 'owner')
   }
 
-  const res = await fetch(`${d.url}?id=eq.${id}&select=name,password_hash`, { headers: d.headers }).catch((e: Error) => e)
-  if (!(res instanceof Response) || !res.ok) return storageError(res)
-  const [row] = (await res.json()) as { name: string; password_hash: string }[]
+  const found = await rows<{ name: string; password_hash: string }>(`workspaces?id=eq.${id}&select=name,password_hash`)
+  if (!found) return storageError(null)
+  const [row] = found
   // Same answer for an unknown name and a wrong password, so names cannot be probed.
   if (!row || !(await checkPassword(body.password, row.password_hash))) return json({ error: 'Name or password is wrong' }, 401)
   // The password is the owner's: whoever knows it signs in as owner.

@@ -1,4 +1,7 @@
-// Supabase REST access for server functions (service-role key; never sent to the browser).
+// Storage for server functions: Supabase's REST API (service-role key; never sent to the browser), or, on a
+// computer running Pratibimb without Supabase, the same calls answered from a local file (local.ts).
+
+import { localRest, localSecret } from './local.js'
 
 /** An environment value as pasted into a dashboard: without surrounding spaces, line breaks or quotes */
 export function setting(...names: string[]) {
@@ -46,6 +49,23 @@ export function supabase() {
   return { url, headers }
 }
 
+/**
+ * Local storage on this computer instead of Supabase. Automatic for a copy without Supabase keys that is not
+ * running on Vercel; PRATIBIMB_STORAGE=local or =supabase decides it explicitly. Tests opt in themselves.
+ */
+export function localMode() {
+  const mode = process.env.PRATIBIMB_STORAGE?.trim().toLowerCase()
+  if (mode === 'local') return true
+  if (mode === 'supabase') return false
+  return !process.env.VERCEL && !process.env.VITEST && !supabase()
+}
+
+/** Somewhere to keep workspaces, sites, events and keys: Supabase, or the local file */
+export const storageReady = () => localMode() || supabase() !== null
+
+/** CRON_SECRET, or this computer's own secret when running locally */
+export const cronSecret = () => setting('CRON_SECRET') ?? (localMode() ? localSecret() : undefined)
+
 export type TableName = 'events' | 'sites' | 'workspaces' | 'room_inputs' | 'twin_state' | 'room_hourly' | 'secrets' | 'settings_log' | 'sessions'
 
 export function table(name: TableName) {
@@ -58,6 +78,7 @@ export function table(name: TableName) {
  * reachable, so callers decide what a missing answer means.
  */
 export async function rest(path: string, init: RequestInit = {}): Promise<Response | null> {
+  if (localMode()) return localRest(path, init)
   const sb = supabase()
   if (!sb) return null
   return fetch(`${sb.url}/rest/v1/${path}`, { ...init, headers: { ...sb.headers, ...(init.headers as Record<string, string>) }, signal: init.signal ?? AbortSignal.timeout(8000) }).catch(() => null)
@@ -88,11 +109,8 @@ export interface EventRow {
 
 /** Events of one workspace since `days` ago, newest first; null when storage is missing or failing. */
 export async function recentEvents(workspace: string, days: number): Promise<EventRow[] | null> {
-  const d = table('events')
-  if (!d) return null
   const since = new Date(Date.now() - days * 86_400_000).toISOString()
-  const res = await fetch(`${d.url}?ts=gte.${since}&payload->>site=eq.${workspace}&select=ts,room_id,kind,payload&order=ts.desc&limit=5000`, { headers: d.headers })
-  return res.ok ? ((await res.json()) as EventRow[]) : null
+  return rows<EventRow>(`events?ts=gte.${since}&payload->>site=eq.${workspace}&select=ts,room_id,kind,payload&order=ts.desc&limit=5000`)
 }
 
 /**
@@ -103,24 +121,19 @@ export type Doc = 'site' | 'cameras' | 'ai' | 'connections' | 'telegram'
 export const docId = (workspace: string, doc: Doc) => (doc === 'site' ? workspace : `${workspace}/${doc}`)
 
 export async function readDoc(workspace: string, doc: Doc): Promise<{ value: unknown; updatedAt: string } | null | 'unavailable'> {
-  const d = table('sites')
-  if (!d) return 'unavailable'
-  const res = await fetch(`${d.url}?id=eq.${encodeURIComponent(docId(workspace, doc))}&select=site,updated_at`, { headers: d.headers }).catch(() => null)
-  if (!res?.ok) return 'unavailable'
-  const rows = (await res.json().catch(() => null)) as { site: unknown; updated_at: string }[] | null
-  if (!Array.isArray(rows)) return 'unavailable'
-  return rows[0] ? { value: rows[0].site ?? null, updatedAt: rows[0].updated_at } : null
+  const found = await rows<{ site: unknown; updated_at: string }>(`sites?id=eq.${encodeURIComponent(docId(workspace, doc))}&select=site,updated_at`)
+  if (!found) return 'unavailable'
+  return found[0] ? { value: found[0].site ?? null, updatedAt: found[0].updated_at } : null
 }
 
 /** Saves the document; returns Supabase's response (or the network error) for the caller to judge */
 export async function writeDoc(workspace: string, doc: Doc, value: unknown): Promise<Response | Error> {
-  const d = table('sites')
-  if (!d) return new Error('Server storage is not configured')
-  return fetch(d.url, {
+  const res = await rest('sites', {
     method: 'POST',
-    headers: { ...d.headers, prefer: 'resolution=merge-duplicates,return=minimal' },
+    headers: { prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({ id: docId(workspace, doc), site: value, updated_at: new Date().toISOString() }),
-  }).catch((e: Error) => e)
+  })
+  return res ?? new Error('Server storage is not configured')
 }
 
 /** The Telegram chat linked to a workspace: the one that first wrote to its bot, else the one chosen in Setup */

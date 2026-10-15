@@ -3,10 +3,8 @@
 // The event log is the action-taken record auditors ask for (for example NAAC 7.1.6).
 
 import { z } from 'zod'
-import { recentEvents, table } from '../_lib/db.js'
+import { recentEvents, rest, storageReady } from '../_lib/db.js'
 import { json, readBody, requireRole, storageError } from '../_lib/http.js'
-
-const db = () => table('events')
 
 const EventSchema = z.object({
   id: z.string().max(64),
@@ -20,20 +18,19 @@ export async function POST(req: Request) {
   const c = await requireRole(req, 'manager')
   if (c instanceof Response) return c
   const id = c.id
-  const d = db()
-  if (!d) return json({ error: 'Server storage is not configured' }, 503)
+  if (!storageReady()) return json({ error: 'Server storage is not configured' }, 503)
   const body = await readBody(req, z.object({ events: z.array(EventSchema).min(1).max(200) }), 100_000)
   if (body instanceof Response) return body
   const rows = body.events.map((e) => ({ ts: new Date(e.ts).toISOString(), room_id: e.roomId, kind: e.kind, payload: { text: e.text, site: id, clientId: e.id } }))
-  const res = await fetch(d.url, { method: 'POST', headers: { ...d.headers, prefer: 'return=minimal' }, body: JSON.stringify(rows) }).catch((e: Error) => e)
-  return res instanceof Response && res.ok ? json({ ok: true, stored: rows.length }) : storageError(res)
+  const res = await rest('events', { method: 'POST', headers: { prefer: 'return=minimal' }, body: JSON.stringify(rows) })
+  return res?.ok ? json({ ok: true, stored: rows.length }) : storageError(res)
 }
 
 export async function GET(req: Request) {
   const c = await requireRole(req)
   if (c instanceof Response) return c
   const id = c.id
-  if (!db()) return json({ error: 'Server storage is not configured' }, 503)
+  if (!storageReady()) return json({ error: 'Server storage is not configured' }, 503)
   const days = Math.min(365, Math.max(1, Number(new URL(req.url).searchParams.get('days')) || 30))
   const rows = await recentEvents(id, days)
   if (!rows) return storageError(null)

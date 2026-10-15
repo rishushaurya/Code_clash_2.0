@@ -188,7 +188,7 @@ Every route needs the workspace session (`Authorization: Bearer <token>`) unless
 | `POST /api/reading` | manager | `{ readings: CvReading[], sensors?: SensorReading[] }`; a camera's latest reading every 10 s, and staff reports; stored for the minute tick |
 | `GET /api/state` | viewer | The server's last computed twin, the latest camera readings and each room's sensor state |
 | `GET /api/history?room=&from=&to=` | viewer | Hourly roll-ups per room: kWh, cost, waste, occupied and observed minutes; at most 93 days |
-| `POST /api/tick` | `CRON_SECRET` | The minute tick (docs/DEPLOY.md, section 4b) |
+| `POST /api/tick` | `CRON_SECRET` | The minute tick (docs/DEPLOY.md, section 4a) |
 | `GET /api/doctor` | manager | Every connection tested now: `[{ name, ok, detail, fix }]` |
 | `GET`, `PUT /api/connections` | viewer, manager | Which Shelly devices and Home Assistant entities belong to which room |
 | `GET`, `PUT`, `DELETE /api/keys`; `POST /api/keys/test`; `PUT /api/keys/ai` | owner | Bring your own keys; values never come back, only the last four characters |

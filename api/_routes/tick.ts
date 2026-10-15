@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import type { Alert, AlertType, Command, CvReading, DeviceType, RoomState, Site } from '../../src/shared/types'
 import { applySensor, computeRoom, dropManual, initialRoomState, kwhFrom, type SensorState } from '../../src/twin/compute.js'
 import { alertTypesFor, factsFor, type RuleContext } from '../../src/twin/rules.js'
-import { readDoc, rest, rows, supabase, upsert } from '../_lib/db.js'
+import { cronSecret, readDoc, rest, rows, storageReady, upsert } from '../_lib/db.js'
 import { broadcast, json, logEvent, logJson, safeEqual, storageError } from '../_lib/http.js'
 import { workspaceKeys } from '../_lib/keys.js'
 import { sendAlert } from './alert.js'
@@ -193,9 +193,9 @@ export async function tickWorkspace(workspace: string, inputs: InputRow[], now: 
 }
 
 async function run(req: Request) {
-  const secret = process.env.CRON_SECRET
+  const secret = cronSecret()
   if (!secret || !safeEqual(req.headers.get('authorization') ?? '', `Bearer ${secret}`)) return json({ error: 'Unauthorized' }, 401)
-  if (!supabase()) return json({ error: 'Server storage is not configured' }, 503)
+  if (!storageReady()) return json({ error: 'Server storage is not configured' }, 503)
   const started = Date.now()
   const since = new Date(started - ACTIVE_MS).toISOString()
   const [inputs, connected] = await Promise.all([

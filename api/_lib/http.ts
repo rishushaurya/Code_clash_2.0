@@ -116,13 +116,11 @@ export async function broadcast(workspace: string, event: string, payload: unkno
 
 /** Append to the workspace's event log, the action-taken record auditors ask for. */
 export async function logEvent(workspace: string, roomId: string | null, kind: string, payload: unknown) {
-  const sb = supabase()
-  if (!sb) return
-  await fetch(`${sb.url}/rest/v1/events`, {
+  await rest('events', {
     method: 'POST',
-    headers: { ...sb.headers, prefer: 'return=minimal' },
+    headers: { prefer: 'return=minimal' },
     body: JSON.stringify({ room_id: roomId, kind, payload: { ...(payload as object), site: workspace } }),
-  }).catch(() => undefined)
+  })
 }
 
 /**
@@ -134,7 +132,9 @@ export async function storageError(res: Response | Error | null | undefined) {
     storageProblem() ??
     (res instanceof Response
       ? `Supabase answered ${res.status}: ${(await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160)}`
-      : `Supabase is not reachable from the server (${res?.message ?? 'no response'}). Check VITE_SUPABASE_URL.`)
+      : res
+        ? `Supabase is not reachable from the server (${res.message}). Check VITE_SUPABASE_URL.`
+        : 'Supabase did not answer, or a table is missing. Run supabase/schema.sql once in the Supabase SQL editor, and check VITE_SUPABASE_URL.')
   logJson('error', 'storage', { detail })
   return json({ error: `Storage unavailable. ${detail}` }, 502)
 }

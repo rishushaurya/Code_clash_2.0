@@ -99,6 +99,8 @@ create table if not exists public.settings_log (
 create index if not exists settings_log_ws_ts_idx on public.settings_log (workspace, ts desc);
 alter table public.settings_log enable row level security;
 
+
+
 -- The minute tick. Run once, after deploying, with your address and CRON_SECRET filled in.
 -- Needs the pg_cron and pg_net extensions (Database, Extensions in Supabase; both are on the free plan).
 -- create extension if not exists pg_cron;
