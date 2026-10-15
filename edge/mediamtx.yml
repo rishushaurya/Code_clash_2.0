@@ -2,13 +2,22 @@
 # Run MediaMTX on a machine inside the campus network. Video never leaves the LAN.
 # Put real camera addresses and passwords only in your local copy, never in git.
 #
-# Camera page source: http://<this-machine>:8889/lh1/whep
-# Open the camera page from http://localhost or the LAN dev server (npm run dev),
-# because an HTTPS page cannot fetch an http:// stream.
+# Camera page source: https://<this-machine>:8889/lh1/whep
+#
+# The deployed app is an https page, and browsers block an http:// stream from an https page (mixed content).
+# So either:
+#   1. turn on HTTPS below with a certificate the camera machine's browser trusts (a reverse proxy such as Caddy
+#      with a real certificate, or a local CA such as mkcert installed on that machine), or
+#   2. open the camera page from http://localhost on the MediaMTX machine (npm run dev), or
+#   3. run the Python edge worker (edge/edge.py) next to the CCTV: it reads RTSP directly and sends only numbers.
 
 webrtc: yes
 webrtcAddress: :8889
-webrtcAllowOrigin: '*'
+webrtcAllowOrigins: ['*']
+# HTTPS for the WHEP handshake (the media itself is always encrypted):
+webrtcEncryption: no
+webrtcServerKey: server.key
+webrtcServerCert: server.crt
 
 paths:
   lh1:

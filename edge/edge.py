@@ -23,16 +23,20 @@ from pathlib import Path
 CHANNEL = os.environ.get('PRATIBIMB_CHANNEL', '')
 MODEL = Path(__file__).resolve().parent.parent / 'public' / 'models' / 'efficientdet_lite0.tflite'
 PERSON_MIN_SCORE = 0.4
+# Person candidates down to this score are kept to say how sure "nobody" is (src/cv/detector.ts)
+NEAR_MISS_FLOOR = 0.15
 SMOOTHING_WINDOW = 5
 DETECT_EVERY_S = 0.5
 READING_EVERY_S = 2.0
 LIGHT_HYSTERESIS = 0.15
+CALIBRATION_MIN_GAP = 8  # src/shared/config.ts
+REF = 'REF'  # reference wall patch: brightness is read relative to it
 MOTION_ON_THRESHOLD = 6
 PROBE_WIDTH = 320  # same downscale as the browser, so brightness references match
 
 
 def is_calibrated(z):
-    return z.get('onRef') is not None and z.get('offRef') is not None and abs(z['onRef'] - z['offRef']) > 4
+    return z.get('onRef') is not None and z.get('offRef') is not None and abs(z['onRef'] - z['offRef']) >= CALIBRATION_MIN_GAP
 
 
 def classify(z, lum):
@@ -85,15 +89,25 @@ def mean_luminance(rgb, z):
     return float((0.2126 * patch[..., 0] + 0.7152 * patch[..., 1] + 0.0722 * patch[..., 2]).mean())
 
 
-def make_reading(room, camera_id, counts, zones, scores):
+def relative_luminance(zone_lum, ref_lum):
+    """Same as the browser: a zone as a share of the reference wall (64 = as bright as the wall), capped at 255."""
+    return zone_lum if ref_lum is None else min(255.0, 64 * zone_lum / max(ref_lum, 1))
+
+
+def confidence(scores, near_miss):
+    """Mean score of the people counted; with nobody counted, one minus the best rejected candidate."""
+    return round(sum(scores) / len(scores), 2) if scores else round(1 - near_miss, 2)
+
+
+def make_reading(room, camera_id, counts, zones, scores, near_miss=NEAR_MISS_FLOOR):
     return {
         'roomId': room,
         'cameraId': camera_id,
         'sourceKind': 'python_edge',
         'ts': int(time.time() * 1000),
         'headcount': int(statistics.median_low(counts)) if counts else 0,
-        'zones': {z['id']: z['on'] for z in zones if z.get('w') and z.get('kind') != 'region' and z.get('on') is not None},
-        'confidence': round(sum(scores) / len(scores), 2) if scores else 1.0,
+        'zones': {z['id']: z['on'] for z in zones if z.get('w') and z.get('kind') != 'region' and z['id'] != REF and z.get('on') is not None},
+        'confidence': confidence(scores, near_miss),
     }
 
 
@@ -122,7 +136,7 @@ def make_detector():
         vision.ObjectDetectorOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=str(MODEL)),
             running_mode=vision.RunningMode.VIDEO,
-            score_threshold=PERSON_MIN_SCORE,
+            score_threshold=NEAR_MISS_FLOOR,
             category_allowlist=['person'],
             max_results=60,
         )
@@ -161,18 +175,22 @@ def run(room, camera, source, zones, max_seconds=None):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         result = detector.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((now - started) * 1000))
         region = next((z for z in zones if z.get('kind') == 'region'), None)
-        people = [d for d in result.detections if in_region(d.bounding_box, region, rgb.shape[1], rgb.shape[0])]
+        found = [d for d in result.detections if in_region(d.bounding_box, region, rgb.shape[1], rgb.shape[0])]
+        people = [d for d in found if d.categories[0].score >= PERSON_MIN_SCORE]
+        near_miss = max([NEAR_MISS_FLOOR] + [d.categories[0].score for d in found if d.categories[0].score < PERSON_MIN_SCORE])
         counts.append(len(people))
         scores = [d.categories[0].score for d in people]
         probe = cv2.resize(rgb, (PROBE_WIDTH, max(1, round(PROBE_WIDTH * rgb.shape[0] / rgb.shape[1]))))
+        ref = next((z for z in zones if z.get('id') == REF and z.get('w')), None)
+        ref_lum = mean_luminance(probe, ref) if ref else None
         for z in zones:
-            if z.get('w') and z.get('kind') != 'region':
-                value = mean_motion(prev_probe, probe, z) if z.get('kind') == 'motion' else mean_luminance(probe, z)
+            if z.get('w') and z.get('kind') != 'region' and z['id'] != REF:
+                value = mean_motion(prev_probe, probe, z) if z.get('kind') == 'motion' else relative_luminance(mean_luminance(probe, z), ref_lum)
                 z['on'] = classify_zone(z, value)
         prev_probe = probe
         if now - last_send >= READING_EVERY_S:
             last_send = now
-            send(make_reading(room, camera_id, list(counts), zones, scores))
+            send(make_reading(room, camera_id, list(counts), zones, scores, near_miss))
 
 
 def selftest():
@@ -199,6 +217,10 @@ def selftest():
     r = make_reading('LH-3', 'LH-3/edge-test', [0, 2, 2, 3, 2], [{**z, 'on': True}, {**room, 'id': 'ROOM', 'on': True}], [0.8, 0.6])
     assert r['headcount'] == 2 and r['zones'] == {'z1': True} and r['confidence'] == 0.7
     assert set(r) == {'roomId', 'cameraId', 'sourceKind', 'ts', 'headcount', 'zones', 'confidence'}
+    assert make_reading('LH-3', 'LH-3/cam-1', [0], [], [], 0.35)['confidence'] == 0.65, 'nobody seen: the doubt, not 1'
+    assert not is_calibrated({**z, 'onRef': 100, 'offRef': 100 + CALIBRATION_MIN_GAP - 1}), 'same gap as the browser'
+    lamp = {**z, 'onRef': relative_luminance(200, 50), 'offRef': relative_luminance(60, 50)}
+    assert classify(lamp, relative_luminance(96, 80)) is False, 'daylight scales wall and fixture alike'
 
     import mediapipe as mp
 
