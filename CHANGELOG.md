@@ -2,6 +2,33 @@
 
 Newest entry first. Every session, human or AI, adds one entry.
 
+## Session 28 · Repo migration and cleanup · Antigravity
+
+**What:**
+- **Migrated repository** from `rishushaurya/just_for_fun` (now deleted) to `rishushaurya/Code_clash_2.0`.
+- **Merged all feature branches** into `main`: `claude/ai-7bf897`, `claude/cameras-247ea6`, `claude/server-2a874e`, `claude/shell-820a89`, `claude/twin-3d-b71d73`. Main now has the complete codebase including:
+  - AI: Assistant panel, workspace keys, grounding by unit and period, floor plan route
+  - Cameras: AutoFind, multi-camera, phase 0 fixes, camera health, CCTV edge worker improvements
+  - Server: 24/7 twin tick, bring-your-own keys, Telegram per workspace, device connections, roles, doctor endpoint, session management
+  - Shell: App shell with sidebar, command palette, Overview/Building/Rooms/Alerts/Trends/Connections/Doctor/Keys/Team pages
+  - 3D: Building model from site data with live state, orbit, walk and fly controls
+- **Removed from tracking:** `.claude/` (Claude Code worktrees), `CLAUDE.md` (AI coding instructions). These are internal AI tooling files, not part of the project.
+- **Updated `.gitignore`** to exclude `.claude/`, `CLAUDE.md`, `.agents/`, `.gemini/`, and the duplicate research plan file at the repo root.
+- **Rewrote `README.md`** for judges: table of contents, problem statement mapping, quick start, architecture, tech stack, repo map with tree view, documentation index, deployment guide, team credits.
+- **Added `docs/TEST_REPORT.md`** and `tests/journey.mjs` (integration test runner).
+- **Old Vercel project deleted.** New deployment pending.
+- **No code changes.** Only git tracking, documentation and repo metadata.
+
+**Confidential files verified excluded:**
+- `.env` (real API keys) — never committed, in `.gitignore`
+- No API keys, tokens, or secrets in any tracked file
+- `.env.example` (safe template with empty values) is the only env file tracked
+
+**Next:**
+- Create a new Vercel project linked to `Code_clash_2.0`
+- Set environment variables in Vercel
+- Deploy and add the live URL to the GitHub repo description
+
 ## Session 27 · Live-site test pass and fixes · Claude Opus 5.5
 
 **Tested:** the live site's whole API with a temporary workspace, with 24 of 25 checks passing:
