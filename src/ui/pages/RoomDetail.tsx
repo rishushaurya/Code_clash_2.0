@@ -2,7 +2,7 @@
 
 import { Camera, Eye, Lightbulb, LightbulbOff, Power, Wind } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { joinLink } from '@/shared/workspace'
+import { can, joinLink } from '@/shared/workspace'
 import { Line, LineChart, ReferenceLine, ResponsiveContainer, YAxis } from 'recharts'
 import { Link, useParams } from 'react-router'
 import { Button } from '@/components/ui/button'
@@ -78,10 +78,10 @@ export default function RoomDetail() {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base">Devices</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" disabled={s.watts === 0} onClick={() => switchOff(room.id, 'lights')} title="Ask your relay, integrations or staff to switch the lights off">
+              <Button size="sm" variant="outline" disabled={s.watts === 0 || !can('manager')} onClick={() => switchOff(room.id, 'lights')} title={can('manager') ? 'Ask your relay, integrations or staff to switch the lights off' : 'Viewers cannot send commands'}>
                 <LightbulbOff aria-hidden /> Switch off lights
               </Button>
-              <Button size="sm" disabled={s.watts === 0} onClick={() => switchOff(room.id, 'all')} title="Ask your relay, integrations or staff to switch everything off">
+              <Button size="sm" disabled={s.watts === 0 || !can('manager')} onClick={() => switchOff(room.id, 'all')} title={can('manager') ? 'Ask your relay, integrations or staff to switch everything off' : 'Viewers cannot send commands'}>
                 <Power aria-hidden /> Switch off all
               </Button>
             </div>

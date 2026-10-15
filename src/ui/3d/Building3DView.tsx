@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { deviceCounts, makeDevices, pushSite, ROOM_TEMPLATES, setSite, SiteSchema, useSite } from '@/shared/site'
 import type { DeviceType, RoomState, RoomType, Site } from '@/shared/types'
+import { can } from '@/shared/workspace'
 import { send } from '@/twin/realtime'
 import { saveCamera, useCameras } from '@/cv/cameras'
 import { SourceBadges, StatusBadge } from '../components/status'
@@ -486,6 +487,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 <Layers />
               </Tool>
             )}
+            {can('manager') && (
             <Tool
               label="Edit"
               pressed={edit}
@@ -497,15 +499,18 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
             >
               <PencilRuler />
             </Tool>
+            )}
             <Tool label="Cutaway" keyHint="K" pressed={cutaway || isolate !== null || mode === 'walk'} onClick={() => setCutaway((v) => !v)}>
               <Scissors />
             </Tool>
             <Tool label="Furniture" pressed={details} onClick={() => setDetails((v) => !v)}>
               <Sofa />
             </Tool>
-            <Tool label="Design with AI" pressed={panel === 'design'} onClick={() => setPanel(panel === 'design' ? null : 'design')}>
-              <Sparkles />
-            </Tool>
+            {can('manager') && (
+              <Tool label="Design with AI" pressed={panel === 'design'} onClick={() => setPanel(panel === 'design' ? null : 'design')}>
+                <Sparkles />
+              </Tool>
+            )}
             <span className="mx-1 h-6 w-px bg-border" aria-hidden />
             <Tool label="Rooms" keyHint="L" pressed={panel === 'list'} onClick={() => setPanel(panel === 'list' ? null : 'list')}>
               <List />

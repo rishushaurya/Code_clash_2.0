@@ -14,6 +14,7 @@ import type { KeyName } from '@/shared/types'
 import { apiFetch, online, SESSION } from '@/shared/workspace'
 import { useTwin } from '@/twin/store'
 import { useApi, type KeysResponse, type ServerStatus } from '../api'
+import { DeviceMapping } from '../components/DeviceMapping'
 import { PageHeader } from '../components/states'
 import { StatusLight, type Light } from '../components/status'
 
@@ -194,6 +195,7 @@ export default function Connections() {
           {SESSION?.channel ? <Secret id="edge-channel" label="Live channel (PRATIBIMB_CHANNEL for edge/edge.py)" value={SESSION.channel} what="Channel" /> : null}
         </Connection>
       </div>
+      <DeviceMapping />
     </div>
   )
 }

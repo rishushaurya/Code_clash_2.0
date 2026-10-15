@@ -14,7 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { WATTS } from '@/shared/config'
 import { COUNTRY_PRESETS, deviceCounts, emptySite, makeDevices, parseSite, pushSite, ROOM_TEMPLATES, setSite, SiteSchema, useSite } from '@/shared/site'
 import { send } from '@/twin/realtime'
-import { ns, online } from '@/shared/workspace'
+import { can, ns, online } from '@/shared/workspace'
 import { AiSetup } from '@/ui/components/AiSetup'
 import type { AlertLanguage, DeviceType, Room, RoomType, Site } from '@/shared/types'
 import { clearUsage, observedLeftOnShare, observedOpenHours } from '@/twin/usage'
@@ -655,8 +655,8 @@ export default function SiteSettings() {
               Discard
             </Button>
           )}
-          <Button onClick={save} disabled={!dirty}>
-            <Save aria-hidden /> {dirty ? 'Save changes' : 'Saved'}
+          <Button onClick={save} disabled={!dirty || !can('manager')} title={can('manager') ? undefined : 'Viewers can look but not change the site'}>
+            <Save aria-hidden /> {!can('manager') ? 'View only' : dirty ? 'Save changes' : 'Saved'}
           </Button>
         </div>
       </div>

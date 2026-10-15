@@ -1,6 +1,6 @@
 # Pratibimb Design System
 
-Version 2.0 · Owner: Neev Pujari (UI) · Implemented in [`src/index.css`](../src/index.css)
+Version 3.0 · Owner: Neev Pujari (UI) · Implemented in [`src/index.css`](../src/index.css)
 
 Built with the ui-ux-designer skill (colour search "warm earthy sustainability", type search "warm friendly professional modern"), then adapted so status colours keep one meaning each.
 
@@ -57,17 +57,37 @@ Define in `src/index.css`. Components use Tailwind classes mapped to these token
 
 Input badges on a room: `ScanEye` Camera, `Gauge` Sensor, `Hand` Staff report, all in the highlight colour.
 
-## 4. Screens
+## 4. App shell and screens
 
-| Screen | Path | Layout |
-| --- | --- | --- |
-| Live Twin | `/` | Metric strip (power, cost per hour, session energy, saved); floor plan with a floor switcher, 3D view and time-travel slider; alert feed with AI cards; energy Sankey; Copilot; Patterns; Energy League with shout-out. With no site: one card leading to Setup; with no live input: the "Bring the building to life" guide |
-| Room | `/room/:id` | Status and input badges; four tiles (people, power, cost, CO2), each saying "No input" honestly when unknown; device table with On, Off and Not observed; camera zones; staff report buttons; CO2 chart; cameras card with QR and each camera's live status; AI Surveyor |
-| Scenario Lab | `/lab` | Policy cards and run button; savings range tiles; business case (payback and EPI); baseline vs policy chart with p10-p90 bands; per-room table; rooftop solar from measured sunshine; observed utilization heatmap |
-| Reports | `/reports` | Generate, then a printable audit report; "Download PDF" prints it; activity log with filters and CSV download |
-| Setup | `/setup` | Site and money; automatic switch-off; opening hours (with observed suggestion); integrations status; floors; rooms with template buttons, device counts and exemptions; device ratings; import, export, save |
-| Camera | `/camera/:room` | Source picker; live view with blurred faces; device zones (lights, fans, screens); privacy inspector |
-| Public view | `/live` | Phone layout: featured room with a "Lights left on here?" button, building totals, live power line, compact plan; works on any phone with no setup |
+**Shell.** A left sidebar groups the screens by job: Monitor, Analyse, Connect, Settings. Below 1280 px it starts collapsed to icons; on phones it becomes a bottom tab bar with the five most used screens. The top bar holds breadcrumbs, the live status (time of the last reading, "Stale" after 15 minutes), the alerts bell (only unacknowledged alerts count), the Assistant, the workspace menu and the theme switch. Ctrl+K opens a command palette for rooms, pages and actions.
+
+| Group | Screen | Path | Layout |
+| --- | --- | --- | --- |
+| Monitor | Overview | `/` | Building health score with what moves it; power, cost per hour, waste and saved; today's three actions; the "Get your building live" checklist; a live mini 3D view |
+| Monitor | Building 3D | `/building` (`?fs=1` full screen) | The 3D twin (section 4.1) |
+| Monitor | Rooms | `/rooms`, `/room/:id` | Table or grid with search and filters, status (including "Emptying, n s"), people, watts, inputs and camera coverage; the room page has its tiles, devices, cameras, CO2 and staff reports |
+| Monitor | Alerts | `/alerts` | Open, acknowledged and resolved, each with its evidence and fix |
+| Analyse | Scenario Lab | `/lab` | Policies, savings ranges, business case, solar, observed utilization; every result labelled Modelled |
+| Analyse | Reports | `/reports` | Audit report, Download PDF, activity log with CSV |
+| Analyse | Trends | `/trends` | Day, week and month history from the server's hourly roll-up |
+| Connect | Cameras | `/camera` | Camera station, zones, auto-find, health, privacy inspector |
+| Connect | Connections | `/connections` | One card per input or output with a status light and its set-up link; the plug and entity list per room |
+| Connect | Connection doctor | `/connections/doctor` | Every check with what failed and the fix |
+| Settings | Site | `/settings/site` | Site and money, hours, floors, rooms, devices, import and export, with a sticky save bar |
+| Settings | Keys and AI | `/settings/keys` | One card per provider and service: where to get the key, Save, Test, last four characters; which AI handles chat, reports, photos and voice |
+| Settings | Team | `/settings/team` | Invite links by role, signed-in devices, password, export and delete |
+| | Public view | `/live` | Phone layout for visitors, no sign-in |
+
+Viewers see every screen but write actions are disabled with the reason in the tooltip.
+
+### 4.1 The 3D twin
+
+- **A building, not a stack of plates.** By default the model shows the facade (glass bands, mullions, spandrels), columns, the roof with its parapet and AC condensers, and the entrance canopy, standing on paving and lawn with trees, a path, parking and benches.
+- **Cutaway (K)** lifts the facade and roof to show the rooms; picking one floor, exploding the floors or walking in does the same.
+- **Inside**, each room has its own wall and floor colour and furniture laid out for its type; devices show their live state (lit lights, turning fans, split ACs); the live status tints each room's floor, and labels carry an icon and text.
+- **Natural colours** (grass, trees, glass, wood) are blended into the page background, so they sit quietly in both themes and never compete with the status colours.
+- **Edit** works on a draft with Undo; nothing is stored until Save. The AI designer proposes a list of changes the person ticks before they apply.
+- Only the top floor's labels show while the facade is on, plus any room wasting power, so labels never float through the roof.
 
 ## 5. Component rules
 
