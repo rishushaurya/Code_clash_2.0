@@ -71,6 +71,8 @@ export interface Site {
   rooms: Room[]
   /** Telegram chat that receives this workspace's alerts and weekly digest (the bot answers /chatid with it) */
   telegramChatId?: string
+  /** The building's real outline from OpenStreetMap, metres around its centre, so every device draws the same shell */
+  outline?: { osmId: number; name: string | null; poly: [number, number][]; levels: number | null; heightM: number | null }
 }
 
 /** A marked area of a camera picture: the room boundary, or a light, fan or screen zone */
@@ -93,6 +95,8 @@ export interface CameraConfig {
   roomId: RoomId
   name: string
   zones: CameraZone[]
+  /** Where the camera hangs in its room, metres [x, height, z], placed in the 3D view */
+  position?: [number, number, number]
   updatedAt: number
 }
 

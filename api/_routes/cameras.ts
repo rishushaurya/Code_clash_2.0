@@ -25,6 +25,7 @@ export const CameraConfigSchema = z.object({
       }),
     )
     .max(20),
+  position: z.tuple([z.number(), z.number(), z.number()]).optional(),
   updatedAt: z.number(),
 })
 const CameraId = z.string().regex(/^[A-Za-z0-9-]{1,12}\/cam-\d{1,2}$/)

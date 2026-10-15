@@ -156,6 +156,9 @@ export const SiteSchema = z.object({
   floors: z.array(z.object({ level: z.number().int(), name: z.string(), building: z.string().max(60).optional() })).min(1),
   rooms: z.array(RoomSchema),
   telegramChatId: z.string().regex(/^-?\d{1,20}$/, 'Telegram chat id: digits, with a minus sign for groups').optional(),
+  outline: z
+    .object({ osmId: z.number(), name: z.string().nullable(), poly: z.array(z.tuple([z.number(), z.number()])).min(3).max(2000), levels: z.number().nullable(), heightM: z.number().nullable() })
+    .optional(),
 })
 
 function load(): Site {
