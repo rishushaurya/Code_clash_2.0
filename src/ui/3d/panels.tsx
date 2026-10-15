@@ -1,7 +1,7 @@
 // Floating panels of the 3D view. They render inside the view, not in a portal, so they stay visible in full screen.
 
 import { useRef, useState, type ReactNode } from 'react'
-import { Camera, Check, Loader2, MapPin, Search, Trash2, X } from 'lucide-react'
+import { Building2, Camera, Check, Loader2, MapPin, Search, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,8 +26,9 @@ export function Panel({ title, onClose, children, className }: { title: string; 
 }
 
 /** Look up the real building on OpenStreetMap and show its outline around the rooms */
-export function OutlinePanel({ site, outline, onOutline, onClose }: { site: Site; outline: Outline | null; onOutline: (o: Outline | null) => void; onClose: () => void }) {
+export function OutlinePanel({ site, outline, onOutline, onGenerate, onClose }: { site: Site; outline: Outline | null; onOutline: (o: Outline | null) => void; onGenerate: (o: Outline, levels: number) => void; onClose: () => void }) {
   const [query, setQuery] = useState('')
+  const [levels, setLevels] = useState<number | null>(null)
   const [state, setState] = useState<{ busy?: boolean; error?: string; found?: Outline; place?: string }>({})
   async function find() {
     setState({ busy: true })
@@ -57,6 +58,18 @@ export function OutlinePanel({ site, outline, onOutline, onClose }: { site: Site
           <Button variant="ghost" size="sm" className="mt-1" onClick={() => onOutline(null)}>
             <Trash2 /> Remove outline
           </Button>
+          <div className="mt-2 flex items-end gap-2 border-t pt-2">
+            <div className="space-y-1">
+              <Label htmlFor="osm-levels" className="text-xs">
+                Floors
+              </Label>
+              <Input id="osm-levels" type="number" min={1} max={30} className="h-8 w-20" value={levels ?? outline.levels ?? 2} onChange={(e) => setLevels(Number(e.target.value) || 1)} />
+            </div>
+            <Button size="sm" className="flex-1" onClick={() => onGenerate(outline, Math.min(30, Math.max(1, levels ?? outline.levels ?? 2)))}>
+              <Building2 /> Generate the building
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Builds floors and rooms inside this outline as a starting point. You review it before saving.</p>
         </div>
       )}
       <form
@@ -112,7 +125,7 @@ export interface FloorplanProposal {
 }
 
 /** Shrinks a photo so the upload stays small; the picture itself is never stored */
-async function toDataUrl(file: File, max = 1600): Promise<{ url: string; w: number; h: number }> {
+export async function toDataUrl(file: File, max = 1600): Promise<{ url: string; w: number; h: number }> {
   const img = await createImageBitmap(file)
   const k = Math.min(1, max / Math.max(img.width, img.height))
   const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) })

@@ -38,6 +38,7 @@ export type DesignOp =
   | { op: 'setFurniture'; roomId: string; items: { kind: FurnitureKind; count: number }[] }
   | { op: 'placeFurniture'; roomId: string; items: Furniture[] }
 
+const PLURAL: Record<FurnitureKind, string> = { desk: 'desks', chair: 'chairs', table: 'tables', bench: 'benches', board: 'boards', sofa: 'sofas', shelf: 'shelves', plant: 'plants', podium: 'podiums', bed: 'beds' }
 const ID_PREFIX: Record<RoomType, string> = { classroom: 'CR', lecture_hall: 'LH', lab: 'LAB', office: 'OFF', meeting: 'MR', other: 'RM' }
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 const r2 = (v: number) => Math.round(v * 100) / 100
@@ -175,8 +176,10 @@ export function applyOps(input: Site, ops: DesignOp[]): { site: Site; notes: str
       const t = ROOM_TEMPLATES[o.type]
       const id = nextId(site, o.type)
       const [sw, sd] = src ? roomSize(site, src) : [0, 0]
-      const w = clamp(o.widthM ?? (sw || Math.sqrt(t.areaM2 * 1.4)), 2, 80)
-      const d = clamp(o.depthM ?? (sd || t.areaM2 / w), 2, 80)
+      // Without a size, the room gets its type's area, or more when its seats need it (about 1.6 m² a seat).
+      const area = Math.max(t.areaM2, (o.capacity ?? 0) * (o.type === 'lab' ? 2.2 : 1.6))
+      const w = clamp(o.widthM ?? (sw || Math.sqrt(area * 1.4)), 2, 80)
+      const d = clamp(o.depthM ?? (sd || area / w), 2, 80)
       const h = clamp(o.heightM ?? src?.heightM ?? 3, 2.2, 12)
       const s = scaleFor(site, o.floor)
       const [x, y] = freeSpot(site, o.floor)
@@ -287,7 +290,7 @@ export function describeOp(o: DesignOp, site: Site): string {
     case 'setStyle':
       return `New look for ${name(o.roomId)}`
     case 'setFurniture':
-      return `Furniture in ${name(o.roomId)}: ${o.items.map((i) => `${i.count} ${i.kind}`).join(', ')}`
+      return `Furniture in ${name(o.roomId)}: ${o.items.map((i) => `${i.count} ${i.count === 1 ? i.kind : PLURAL[i.kind]}`).join(', ')}`
     case 'placeFurniture':
       return `Rearrange furniture in ${name(o.roomId)}`
   }

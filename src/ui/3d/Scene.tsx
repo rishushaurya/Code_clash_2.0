@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import type { CameraConfig, DeviceType, Room, RoomState } from '@/shared/types'
 import { STATUS } from '../components/status'
 import { bbox, blockers, collide, placeDevices, roomAt, WALL, type FloorGeo, type Model, type Placed, type RoomGeo, type V2 } from './model'
+import { Exterior } from './Exterior'
+import { flat, Furnishings, RoomFloors } from './Interior'
 import type { Outline } from './osm'
 
 export type Mode = 'orbit' | 'walk' | 'fly'
@@ -58,6 +60,10 @@ interface Props {
   reduced: boolean
   compact: boolean
   outline: Outline | null
+  /** Facade, roof and columns: off when the view looks inside */
+  envelope: boolean
+  /** Furniture and room floor colours */
+  details: boolean
   /** A new object moves the walker into that room */
   walkStart: { id: string } | null
   api: RefObject<SceneApi | null>
@@ -72,17 +78,11 @@ interface Props {
   onMove: (id: string, shift: V2 | null) => void
 }
 
-/** A flat shape from a polygon in world x/z, lying on y = 0 */
-function flat(poly: V2[]) {
-  const g = new THREE.ShapeGeometry(new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z))))
-  g.rotateX(-Math.PI / 2)
-  return g
-}
-
 const floorBox = (f: FloorGeo) => (f.rooms.length ? bbox(f.rooms.flatMap((r) => r.poly)) : { min: [0, 0] as V2, max: [10, 10] as V2 })
 
-/** One box per wall piece, merged into a single mesh per floor and material */
-function wallGeometry(floor: FloorGeo, glass: boolean) {
+/** One box per wall piece, merged into a single mesh per floor and material; walls carry their room's colour */
+function wallGeometry(floor: FloorGeo, glass: boolean, colourOf?: (room: string) => string) {
+  const c = new THREE.Color()
   const parts = floor.walls
     .filter((w) => w.glass === glass)
     .map((w) => {
@@ -91,6 +91,11 @@ function wallGeometry(floor: FloorGeo, glass: boolean) {
       const g = new THREE.BoxGeometry(Math.hypot(dx, dz) + (glass ? 0 : WALL), w.y1 - w.y0, glass ? WALL / 3 : WALL)
       g.rotateY(-Math.atan2(dz, dx))
       g.translate((w.a[0] + w.b[0]) / 2, (w.y0 + w.y1) / 2, (w.a[1] + w.b[1]) / 2)
+      if (colourOf) {
+        c.set(colourOf(w.room))
+        const n = g.attributes.position.count
+        g.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n }, () => [c.r, c.g, c.b]).flat(), 3))
+      }
       return g
     })
   const merged = parts.length ? mergeGeometries(parts) : null
@@ -106,7 +111,12 @@ function useDisposable<T extends { dispose: () => void } | null>(make: () => T, 
 }
 
 export function Scene(props: Props) {
-  const { model, mode, levels, explode, tokens, edit, outline } = props
+  const { model, mode, levels, explode, tokens, edit, outline, envelope, siteRooms } = props
+  const acs = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const f of model.floors) for (const g of f.rooms) out[f.building] = (out[f.building] ?? 0) + (siteRooms.find((r) => r.id === g.id)?.devices.filter((d) => d.type === 'ac').length ?? 0)
+    return out
+  }, [model, siteRooms])
   const visible = model.floors.filter((f) => levels.includes(f.level))
   const span = Math.max(model.max[0] - model.min[0], model.max[1] - model.min[1], model.top, 10)
   const centre = new THREE.Vector3((model.min[0] + model.max[0]) / 2, 0, (model.min[1] + model.max[1]) / 2)
@@ -146,7 +156,8 @@ export function Scene(props: Props) {
           ))}
         </group>
       </Bvh>
-      {outline && mode !== 'walk' && <Shell outline={outline} model={model} tokens={tokens} />}
+      <Exterior model={model} tokens={tokens} envelope={envelope && !explode} acs={acs} />
+      {outline && mode !== 'walk' && !envelope && <Shell outline={outline} model={model} tokens={tokens} />}
       {mode === 'orbit' ? (
         <Orbit {...props} span={span} />
       ) : (
@@ -293,9 +304,14 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   return null
 }
 
-function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, cameras, onRoom, onDevice, onCamera, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
+function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, cameras, details, envelope, explode, model, onRoom, onDevice, onCamera, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
   const ref = useRef<THREE.Group>(null)
-  const walls = useDisposable(() => wallGeometry(floor, false), [floor])
+  // With the facade on, only the top floor's labels show (and any room wasting power), so labels never float through the roof.
+  const building = model.buildings.find((b) => b.name === floor.building)
+  const topFloor = !building || floor.y + floor.h >= building.top - 0.01
+  const closed = envelope && !explode
+  const wallColour = (id: string) => siteRooms.find((r) => r.id === id)?.style?.wall ?? tokens.surface
+  const walls = useDisposable(() => wallGeometry(floor, false, wallColour), [floor, siteRooms, tokens.surface])
   const glass = useDisposable(() => wallGeometry(floor, true), [floor])
   const box = floorBox(floor)
   const inside = mode !== 'orbit'
@@ -341,7 +357,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
       </mesh>
       {walls && (
         <mesh geometry={walls} castShadow receiveShadow onClick={(e) => place(e)}>
-          <meshStandardMaterial color={tokens.surface} roughness={0.85} />
+          <meshStandardMaterial vertexColors roughness={0.85} />
           <Edges threshold={30} color={tokens.border} />
         </mesh>
       )}
@@ -357,6 +373,8 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
           <meshStandardMaterial color={tokens.surface} roughness={1} />
         </mesh>
       )}
+      {details && <RoomFloors floor={floor} rooms={siteRooms} tokens={tokens} />}
+      {details && <Furnishings floor={floor} rooms={siteRooms} tokens={tokens} />}
       {floor.rooms.map((g) => (
         <RoomTile
           key={g.id}
@@ -396,6 +414,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
             onMove(g.id, null)
           }}
           onLabel={() => onRoom(g.id)}
+          label={!closed || topFloor || rooms[g.id]?.status === 'waste'}
         />
       ))}
       <Fixtures placed={placed} rooms={rooms} tokens={tokens} reduced={reduced} selected={selected} onDevice={placing ? undefined : onDevice} />
@@ -431,6 +450,7 @@ function RoomTile({
   reduced,
   inside,
   onLabel,
+  label,
   ...events
 }: {
   geo: RoomGeo
@@ -440,6 +460,7 @@ function RoomTile({
   reduced: boolean
   inside: boolean
   onLabel: () => void
+  label: boolean
   onClick: (e: ThreeEvent<MouseEvent>) => void
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void
   onPointerMove: (e: ThreeEvent<PointerEvent>) => void
@@ -462,6 +483,7 @@ function RoomTile({
         <meshStandardMaterial ref={mat} color={colour} transparent opacity={base} depthWrite={false} />
       </mesh>
       <Line points={outline} color={selected ? tokens.highlight : colour} lineWidth={selected ? 4 : status === 'waste' ? 3 : 1.5} dashed={status === 'unknown'} dashSize={0.5} gapSize={0.35} />
+      {label && (
       <Html position={[geo.center[0], inside ? Math.min(geo.h - 0.4, 2.4) : geo.h + 0.8, geo.center[1]]} center zIndexRange={[10, 0]} occlude={inside}>
         <button
           type="button"
@@ -483,6 +505,7 @@ function RoomTile({
           )}
         </button>
       </Html>
+      )}
     </group>
   )
 }
@@ -500,7 +523,15 @@ const SHAPES: Record<DeviceType, () => THREE.BufferGeometry> = {
     ;[a, b, hub, rod, ...parts].forEach((x) => x.dispose())
     return g
   },
-  ac: () => new THREE.BoxGeometry(1, 0.3, 0.24),
+  ac: () => {
+    // A wall-mounted split unit: the body and the louvre along its bottom edge.
+    const body = new THREE.BoxGeometry(0.95, 0.3, 0.22).toNonIndexed()
+    const louvre = new THREE.BoxGeometry(0.85, 0.05, 0.05).translate(0, -0.13, 0.11).toNonIndexed()
+    const g = mergeGeometries([body, louvre])
+    body.dispose()
+    louvre.dispose()
+    return g
+  },
   projector: () => new THREE.BoxGeometry(0.4, 0.15, 0.35),
   pc: () => new THREE.BoxGeometry(0.5, 0.32, 0.04),
 }

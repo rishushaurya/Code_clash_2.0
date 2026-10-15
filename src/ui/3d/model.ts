@@ -35,6 +35,8 @@ export interface RoomGeo {
 }
 
 export interface WallPiece {
+  /** The room this wall belongs to, for its colour */
+  room: string
   a: V2
   b: V2
   /** Height range above the floor, metres */
@@ -227,7 +229,7 @@ export function floorWalls(rooms: RoomGeo[]): WallPiece[] {
       if (L > t + EPS) runs.push({ lo: t, hi: L, door: false })
       for (const { lo, hi, door } of runs) {
         if (door) {
-          if (r.h > DOOR_H) pieces.push({ a: at(lo), b: at(hi), y0: DOOR_H, y1: r.h, glass: false })
+          if (r.h > DOOR_H) pieces.push({ room: r.id, a: at(lo), b: at(hi), y0: DOOR_H, y1: r.h, glass: false })
           continue
         }
         // Split a run at the shared / outside boundaries, so windows go only on outside walls.
@@ -236,10 +238,10 @@ export function floorWalls(rooms: RoomGeo[]): WallPiece[] {
           const [u, v] = [marks[k], marks[k + 1]]
           // Windows on outside walls, but not the one with the door.
           if (r.windowSide && !cuts.length && isOutside(u, v) && v - u > 1.2 && r.h > HEAD) {
-            pieces.push({ a: at(u), b: at(v), y0: 0, y1: SILL, glass: false })
-            pieces.push({ a: at(u), b: at(v), y0: SILL, y1: HEAD, glass: true })
-            pieces.push({ a: at(u), b: at(v), y0: HEAD, y1: r.h, glass: false })
-          } else pieces.push({ a: at(u), b: at(v), y0: 0, y1: r.h, glass: false })
+            pieces.push({ room: r.id, a: at(u), b: at(v), y0: 0, y1: SILL, glass: false })
+            pieces.push({ room: r.id, a: at(u), b: at(v), y0: SILL, y1: HEAD, glass: true })
+            pieces.push({ room: r.id, a: at(u), b: at(v), y0: HEAD, y1: r.h, glass: false })
+          } else pieces.push({ room: r.id, a: at(u), b: at(v), y0: 0, y1: r.h, glass: false })
         }
       }
     })

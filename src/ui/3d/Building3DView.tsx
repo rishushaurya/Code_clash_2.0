@@ -18,19 +18,27 @@ import {
   Move3d,
   PencilRuler,
   Plane,
+  Plus,
   RotateCcw,
   Save,
+  Scissors,
+  Sofa,
+  Sparkles,
+  Trash2,
   Undo2,
+  X,
 } from 'lucide-react'
 import { Link } from 'react-router'
 import type * as THREE from 'three'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { deviceCounts, makeDevices, pushSite, setSite, SiteSchema, useSite } from '@/shared/site'
-import type { DeviceType, RoomState, Site } from '@/shared/types'
+import { deviceCounts, makeDevices, pushSite, ROOM_TEMPLATES, setSite, SiteSchema, useSite } from '@/shared/site'
+import type { DeviceType, RoomState, RoomType, Site } from '@/shared/types'
 import { send } from '@/twin/realtime'
 import { saveCamera, useCameras } from '@/cv/cameras'
 import { SourceBadges, StatusBadge } from '../components/status'
+import { applyOps, fromOutline, type DesignOp } from './design'
+import { DesignPanel, RoomEditor } from './editor'
 import { buildModel, savePolygons, type V2 } from './model'
 import type { Outline } from './osm'
 import { OutlinePanel, Panel, PhotoPanel } from './panels'
@@ -143,9 +151,12 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   const [full, setFull] = useState(false)
   const [mode, setMode] = useState<Mode>('orbit')
   const [isolate, setIsolate] = useState<number | null>(null)
-  const [explode, setExplode] = useState(true)
+  const [explode, setExplode] = useState(false)
+  // Cutaway lifts the facade and roof off to see inside; details draws furniture and room colours.
+  const [cutaway, setCutaway] = useState(false)
+  const [details, setDetails] = useState(true)
   const [selected, setSelected] = useState<Selection>(null)
-  const [panel, setPanel] = useState<'help' | 'list' | 'outline' | 'photo' | null>(null)
+  const [panel, setPanel] = useState<'help' | 'list' | 'outline' | 'photo' | 'design' | null>(null)
   const [notice, setNotice] = useState('')
   const [walkRoom, setWalkRoom] = useState<{ id: string } | null>(null)
 
@@ -153,7 +164,9 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   const [edit, setEdit] = useState(false)
   const [draft, setDraft] = useState<Site | null>(null)
   const [moved, setMoved] = useState<Record<string, V2>>({})
-  const [dirty, setDirty] = useState<number[]>([])
+  /** Earlier drafts, for Undo */
+  const [past, setPast] = useState<Site[]>([])
+  const [newType, setNewType] = useState<RoomType>('classroom')
   const [placing, setPlacing] = useState<DeviceType | 'camera' | null>(null)
   const [moving, setMoving] = useState<string | null>(null)
   const dragBase = useRef<{ id: string; base: V2 } | null>(null)
@@ -204,12 +217,33 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     if (m === 'walk' && isolate === null) setIsolate(ground)
   }
 
+  /** Every change lands in the draft through here, so Undo can step back through them */
+  function commit(next: Site) {
+    setPast((p) => [...p.slice(-40), working])
+    setDraft(next)
+  }
+
+  function applyDesign(ops: DesignOp[], done: string) {
+    const { site: next, notes } = applyOps(working, ops)
+    commit(next)
+    if (!edit) setEdit(true)
+    setNotice(notes.length ? `${done} Skipped: ${notes.join('; ')}.` : done)
+  }
+
+  function undo() {
+    const prev = past[past.length - 1]
+    if (!prev) return
+    setPast((p) => p.slice(0, -1))
+    setDraft(prev === site ? null : prev)
+  }
+
   function onMove(id: string, shift: V2 | null) {
     if (!shift) {
       dragBase.current = null
+      // The dragged position becomes part of the draft at once, so later edits and Undo build on it.
       const level = working.rooms.find((r) => r.id === id)?.floor
-      if (level !== undefined) setDirty((d) => (d.includes(level) ? d : [...d, level]))
-      setDraft((d) => d ?? site)
+      if (level !== undefined) commit(savePolygons(working, model, [level]))
+      setMoved({})
       return
     }
     if (dragBase.current?.id !== id) dragBase.current = { id, base: moved[id] ?? [0, 0] }
@@ -247,7 +281,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     if (!target) return
     const id = target
     devices = devices.map((x) => (x.id === id ? { ...x, position: local } : x))
-    setDraft({ ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, devices } : r)) })
+    commit({ ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, devices } : r)) })
     setSelected({ kind: 'device', id, roomId })
     setMoving(null)
     setNotice(`${id} placed at ${local.map((v) => v.toFixed(2)).join(', ')} m. Save to keep it.`)
@@ -255,13 +289,13 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
 
   function clearPosition(id: string, roomId: string) {
     const d = draft ?? site
-    setDraft({ ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, devices: r.devices.map((x) => (x.id === id ? { ...x, position: undefined } : x)) } : r)) })
+    commit({ ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, devices: r.devices.map((x) => (x.id === id ? { ...x, position: undefined } : x)) } : r)) })
   }
 
   function discard() {
     setDraft(null)
     setMoved({})
-    setDirty([])
+    setPast([])
     setPlacing(null)
     setMoving(null)
   }
@@ -283,7 +317,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
 
   function save() {
     // The draft was copied when editing began; keep an outline chosen since then.
-    if (persist({ ...savePolygons(working, model, dirty), outline: useSite.getState().site.outline })) discard()
+    if (persist({ ...working, outline: useSite.getState().site.outline })) discard()
   }
 
   async function exportGlb() {
@@ -315,6 +349,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
       else if (k === '3') changeMode('fly')
       else if (k === '0') api.current?.reset()
       else if (k === 'x' && mode !== 'walk') setExplode((v) => !v)
+      else if (k === 'k') setCutaway((v) => !v)
+      else if (k === 'z' && edit) undo()
       else if (k === 'l') setPanel((p) => (p === 'list' ? null : 'list'))
       else if (k === '?') setPanel((p) => (p === 'help' ? null : 'help'))
       else if (k === 'Escape') {
@@ -381,6 +417,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
           reduced={reduced}
           compact={compact}
           outline={outline}
+          envelope={!cutaway && isolate === null && mode !== 'walk'}
+          details={details}
           walkStart={walkRoom}
           api={api}
           group={group}
@@ -459,6 +497,15 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
             >
               <PencilRuler />
             </Tool>
+            <Tool label="Cutaway" keyHint="K" pressed={cutaway || isolate !== null || mode === 'walk'} onClick={() => setCutaway((v) => !v)}>
+              <Scissors />
+            </Tool>
+            <Tool label="Furniture" pressed={details} onClick={() => setDetails((v) => !v)}>
+              <Sofa />
+            </Tool>
+            <Tool label="Design with AI" pressed={panel === 'design'} onClick={() => setPanel(panel === 'design' ? null : 'design')}>
+              <Sparkles />
+            </Tool>
             <span className="mx-1 h-6 w-px bg-border" aria-hidden />
             <Tool label="Rooms" keyHint="L" pressed={panel === 'list'} onClick={() => setPanel(panel === 'list' ? null : 'list')}>
               <List />
@@ -498,6 +545,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                     ['Shift', 'Move faster'],
                     ['Space, C', 'Fly up, down'],
                     ['X', 'Explode floors'],
+                    ['K', 'Cutaway: lift the facade and roof'],
+                    ['Z', 'Undo the last edit'],
                     ['L', 'Room list'],
                     ['0', 'Reset view'],
                     ['Esc', 'Cancel, close, back to orbit'],
@@ -530,7 +579,34 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 </ul>
               </Panel>
             )}
-            {panel === 'outline' && <OutlinePanel site={site} outline={outline} onOutline={setOutline} onClose={() => setPanel(null)} />}
+            {panel === 'outline' && (
+              <OutlinePanel
+                site={site}
+                outline={outline}
+                onOutline={setOutline}
+                onGenerate={(o, levels) => {
+                  if (site.rooms.length && !confirm(`Replace your ${site.rooms.length} rooms with a building generated from this outline? You can review it and Discard before saving.`)) return
+                  commit({ ...fromOutline(working, o, levels), outline: o })
+                  setEdit(true)
+                  setIsolate(null)
+                  setPanel(null)
+                  setNotice(`A ${levels}-floor building was generated from the outline. Rename and refit rooms, then Save.`)
+                }}
+                onClose={() => setPanel(null)}
+              />
+            )}
+            {panel === 'design' && (
+              <DesignPanel
+                site={working}
+                roomId={selRoom?.id}
+                floor={isolate ?? undefined}
+                onApply={(ops, done) => {
+                  applyDesign(ops, done)
+                  setPanel(null)
+                }}
+                onClose={() => setPanel(null)}
+              />
+            )}
             {panel === 'photo' && (
               <PhotoPanel
                 site={site}
@@ -589,7 +665,13 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                     setNotice(mode === 'orbit' ? 'Walk into the room, then click the ceiling or wall where it is.' : 'Click the ceiling or wall where it is.')
                   }}
                   onClear={() => clearPosition(selDevice.id, selRoom.id)}
+                  onRemove={() => {
+                    applyDesign([{ op: 'removeDevice', roomId: selRoom.id, deviceId: selDevice.id }], `${selDevice.id} removed.`)
+                    setSelected({ kind: 'room', id: selRoom.id })
+                  }}
                 />
+              ) : edit ? (
+                <RoomEditor site={working} room={selRoom} onOps={applyDesign} />
               ) : (
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-1">
@@ -658,8 +740,46 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 </Button>
               )}
               <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+              <select aria-label="Type of room to add" className="h-8 rounded-md border bg-background px-1 text-sm" value={newType} onChange={(e) => setNewType(e.target.value as RoomType)}>
+                {(Object.keys(ROOM_TEMPLATES) as RoomType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {ROOM_TEMPLATES[t].label}
+                  </option>
+                ))}
+              </select>
+              <Button size="sm" variant="outline" onClick={() => applyDesign([{ op: 'addRoom', floor: isolate ?? ground, name: '', type: newType }], `New ${ROOM_TEMPLATES[newType].label.toLowerCase()} added on ${floorName(isolate ?? ground)}.`)}>
+                <Plus /> Room
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const level = Math.max(...working.floors.map((f) => f.level)) + 1
+                  applyDesign([{ op: 'addFloor', level, name: `Floor ${level}` }], `Floor ${level} added. Add rooms to it.`)
+                  setIsolate(level)
+                }}
+              >
+                <Plus /> Floor
+              </Button>
+              {isolate !== null && working.floors.length > 1 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-waste"
+                  onClick={() => {
+                    if (!confirm(`Remove ${floorName(isolate)} and its ${working.rooms.filter((r) => r.floor === isolate).length} rooms?`)) return
+                    applyDesign([{ op: 'removeFloor', level: isolate }], `${floorName(isolate)} removed.`)
+                    setIsolate(null)
+                  }}
+                >
+                  <Trash2 /> Floor
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" disabled={!past.length} onClick={undo} title="Undo (Z)">
+                <Undo2 /> Undo
+              </Button>
               <Button size="sm" variant="ghost" disabled={!unsaved} onClick={discard}>
-                <Undo2 /> Discard
+                <X /> Discard
               </Button>
               <Button size="sm" disabled={!unsaved} onClick={save}>
                 <Save /> Save
@@ -685,7 +805,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function DeviceDetails({ device, state, edit, moving, onMove, onClear }: { device: Site['rooms'][number]['devices'][number]; state?: RoomState; edit: boolean; moving: boolean; onMove: () => void; onClear: () => void }) {
+function DeviceDetails({ device, state, edit, moving, onMove, onClear, onRemove }: { device: Site['rooms'][number]['devices'][number]; state?: RoomState; edit: boolean; moving: boolean; onMove: () => void; onClear: () => void; onRemove: () => void }) {
   const on = state?.deviceOn[device.id]
   const source = state?.deviceSource?.[device.id]
   return (
@@ -712,6 +832,9 @@ function DeviceDetails({ device, state, edit, moving, onMove, onClear }: { devic
               Clear position
             </Button>
           )}
+          <Button size="sm" variant="ghost" className="text-waste" onClick={onRemove}>
+            <Trash2 /> Remove
+          </Button>
         </div>
       )}
     </div>
