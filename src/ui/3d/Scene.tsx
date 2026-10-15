@@ -204,14 +204,13 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   useEffect(() => {
     const start = () => {
       const { floor, box, segs } = latest.current
-      const r = floor.rooms.find((x) => x.id === walkStart?.id)
-      const wide = box.max[0] - box.min[0] >= box.max[1] - box.min[1]
-      // Start in the chosen room, else at the end of the floor's long centre line (the corridor) looking along it.
-      const p: V2 = r ? r.center : wide ? [box.min[0] + 0.8, (box.min[1] + box.max[1]) / 2] : [(box.min[0] + box.max[0]) / 2, box.min[1] + 0.8]
+      // Start in the chosen room; else outside the ground floor facing it, or in the first room upstairs.
+      const r = floor.rooms.find((x) => x.id === walkStart?.id) ?? (floor.y > 0 ? floor.rooms[0] : undefined)
+      const p: V2 = r ? r.center : [box.min[0] - 3, (box.min[1] + box.max[1]) / 2]
       const [x, z] = fly ? p : collide(p, 0.3, segs)
       camera.position.set(x, floor.y + (fly ? EYE + 4 : EYE), z)
-      // Look along the room's or floor's longer side.
-      const along = r ? r.size[0] >= r.size[1] : wide
+      // Look along the room's longer side, or at the building.
+      const along = r ? r.size[0] >= r.size[1] : true
       look.current = { yaw: along ? -Math.PI / 2 : Math.PI, pitch: fly ? -0.3 : 0 }
     }
     start()
@@ -340,7 +339,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
         </mesh>
       )}
       {inside && (
-        // One ceiling over the whole floor, corridor included, at the floor's height.
+        // One ceiling over the whole floor, gaps between rooms included, at the floor's height.
         <mesh position={[(box.min[0] + box.max[0]) / 2, floor.h + 0.05, (box.min[1] + box.max[1]) / 2]} onClick={(e) => place(e)}>
           <boxGeometry args={[box.max[0] - box.min[0] + 0.4, 0.1, box.max[1] - box.min[1] + 0.4]} />
           <meshStandardMaterial color={tokens.surface} roughness={1} />

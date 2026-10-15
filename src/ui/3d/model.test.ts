@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { layoutRooms, makeDevices } from '@/shared/site'
 import type { Room } from '@/shared/types'
-import { blockers, buildModel, collide, corridorLayout, DOOR_H, floorWalls, placeDevices, planScale, polyArea, savePolygons, type RoomGeo, type V2 } from './model'
+import { blockers, buildModel, collide, DOOR_H, floorWalls, placeDevices, planScale, polyArea, savePolygons, type RoomGeo, type V2 } from './model'
 import { alignToX, parseOverpass } from './osm'
 
 const room = (id: string, floor: number, areaM2: number, extra: Partial<Room> = {}): Room => ({
@@ -20,15 +20,20 @@ const room = (id: string, floor: number, areaM2: number, extra: Partial<Room> = 
 const geo = (id: string, poly: V2[], windowSide = false): RoomGeo => ({ id, name: id, level: 0, poly, origin: poly[0], size: [0, 0], center: [0, 0], y: 0, h: 3, windowSide })
 
 describe('3D model', () => {
-  it('sizes corridor rooms to their own areas', () => {
-    const rects = corridorLayout([room('A', 0, 60), room('B', 0, 40), room('C', 0, 6)], 6)
-    expect(polyArea(rects.get('A')!)).toBeCloseTo(60)
-    expect(polyArea(rects.get('B')!)).toBeCloseTo(40)
-    // A small room keeps a 3 m frontage and gets shallower.
-    expect(polyArea(rects.get('C')!)).toBeCloseTo(6)
-    // A and B face each other across the corridor.
-    expect(rects.get('A')![2][1]).toBe(6)
-    expect(rects.get('B')![0][1]).toBeCloseTo(8.4)
+  it('lays rooms out exactly like the 2D floor plan, in metres', () => {
+    const rooms = layoutRooms([room('A', 0, 60), room('B', 0, 60), room('C', 0, 60), room('D', 0, 60)])
+    const m = buildModel({ floors: [{ level: 0, name: 'G' }], rooms })
+    const total = m.floors[0].rooms.reduce((a, r) => a + polyArea(r.poly), 0)
+    expect(total).toBeCloseTo(240)
+    // Same shapes as the plan: every 3D corner is the plan corner times one scale.
+    const s = m.buildings[0].scale
+    m.floors[0].rooms.forEach((g, i) => {
+      const plan = rooms[i].polygon!
+      g.poly.forEach((p, k) => {
+        expect((p[0] - g.poly[0][0]) / s).toBeCloseTo(plan[k][0] - plan[0][0])
+        expect((p[1] - g.poly[0][1]) / s).toBeCloseTo(plan[k][1] - plan[0][1])
+      })
+    })
   })
 
   it('scales drawn polygons so the rooms add up to their areas', () => {
