@@ -5,17 +5,30 @@
 // report survives one bad sentence. Too little left means the browser writes the report from templates.
 
 import { z } from 'zod'
-import { ALWAYS_ALLOWED, ungroundedFigures } from '../../_lib/grounding.js'
+import { ungroundedFigures } from '../../_lib/grounding.js'
 import { json, logJson, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
-import { aiConfigured, chatJson } from '../../_lib/llm.js'
+import { aiFailure, chatJson } from '../../_lib/llm.js'
 
-const text = (max: number) => z.unknown().optional().transform((v) => (typeof v === 'string' ? v.trim().slice(0, max) : ''))
+/**
+ * A model that breaks its own JSON leaves structure inside the strings: a paragraph ending in `"]` or `”]`,
+ * a "paragraph" that is only `bullets` or `:`. Those characters are cut from the ends, and a string that is only
+ * a field name or punctuation is dropped, so raw JSON never reaches the page.
+ */
+export function cleanText(v: string) {
+  const t = v
+    .replace(/"?\b(?:heading|paragraphs|bullets|sections|title)"?\s*:\s*\[?/gi, '')
+    .replace(/^[\s"'“”‘’[\]{},:]+/, '')
+    .replace(/[\s"'“”‘’[\]{},:]+$/, '')
+    .trim()
+  return /^(heading|paragraphs?|bullets?|sections?|title)?$/i.test(t.replace(/[^a-z]/gi, '')) ? '' : t
+}
+const text = (max: number) => z.unknown().optional().transform((v) => (typeof v === 'string' ? cleanText(v).slice(0, max) : ''))
 const texts = (max: number, count: number) =>
   z
     .unknown()
     .optional()
-    .transform((v) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, max)).filter(Boolean).slice(0, count) : []))
-const Out = z.object({
+    .transform((v) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => cleanText(x).slice(0, max)).filter(Boolean).slice(0, count) : []))
+export const Out = z.object({
   title: text(120),
   sections: z
     .unknown()
@@ -29,15 +42,29 @@ const SYSTEM = `You write energy-audit reports for buildings, in the structure a
 Write these sections in order: Summary; Building profile; Baseline consumption; Waste hotspots; When waste happens (from the observed patterns); Space utilization; Indoor air quality; Recommendations with cost-benefit; Actions taken (include the stored action log when present); Rooftop solar (only when the facts include it); Method and assumptions.
 Rules:
 - Use only figures that appear in the facts JSON, written exactly as they appear there. Never invent, add up, subtract or estimate a number. Quote ranges exactly as given (p10 to p90).
+- Each figure keeps the period its name gives: a monthly saving is "a month", a modelled week is "a week", a live session is "this session". Never call a monthly figure weekly or the reverse.
+- Never write a JSON field name (such as indoorAir, peakPpm or monthlySavingCost) in the text; say what it means in plain words. Indoor air readings marked measured come from a CO2 sensor; the others are estimated from head-counts.
 - Money in the currency given in facts.currency, with its usual symbol. Rooms by id. Say clearly which figures are modelled and which were measured by cameras, sensors or staff.
 - At most 4 short paragraphs and 10 bullets per section. Plain, formal English. No emojis. No markdown symbols inside strings.
 - Reply with JSON only: {"title", "sections": [{"heading", "paragraphs": [..], "bullets": [..]}]}.`
 
-/** Keeps only sentences and bullets whose figures are all in the facts; drops sections left empty */
+/** camelCase keys of the facts (indoorAir, peakPpm): a sentence naming one is leaking the data structure */
+function fieldNames(facts: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(facts)) facts.forEach((v) => fieldNames(v, out))
+  else if (facts && typeof facts === 'object')
+    for (const [k, v] of Object.entries(facts)) {
+      if (/[a-z][A-Z]/.test(k)) out.add(k)
+      fieldNames(v, out)
+    }
+  return out
+}
+
+/** Keeps only sentences and bullets whose figures are all in the facts and that name no field; drops sections left empty */
 export function keepGrounded(draft: Draft, facts: unknown) {
   let removed = 0
+  const fields = [...fieldNames(facts)]
   const grounded = (t: string) => {
-    if (!ungroundedFigures(t, facts, ALWAYS_ALLOWED).length) return true
+    if (!ungroundedFigures(t, facts).length && !fields.some((f) => t.includes(f))) return true
     removed++
     return false
   }
@@ -56,18 +83,16 @@ export function keepGrounded(draft: Draft, facts: unknown) {
 export async function POST(req: Request) {
   const id = requireWorkspace(req)
   if (id instanceof Response) return id
-  if (!aiConfigured()) return json({ error: 'No AI key configured' }, 503)
   const limited = rateLimit(req, 6)
   if (limited) return limited
   const body = await readBody(req, z.object({ facts: z.record(z.string(), z.unknown()) }), 60_000)
   if (body instanceof Response) return body
   try {
-    const { title, sections, removed } = keepGrounded(await chatJson(SYSTEM, JSON.stringify(body.facts), Out), body.facts)
+    const { title, sections, removed } = keepGrounded(await chatJson({ workspace: id, task: 'report' }, SYSTEM, JSON.stringify(body.facts), Out), body.facts)
     if (removed) logJson('info', 'report sentences removed', { workspace: id, removed })
     if (sections.length < 4) return json({ error: 'AI report too thin' }, 502)
     return json({ title, sections })
   } catch (e) {
-    logJson('warn', 'report failed', { error: String(e).slice(0, 300) })
-    return json({ error: 'AI unavailable' }, 502)
+    return aiFailure(e, 'report', { workspace: id })
   }
 }

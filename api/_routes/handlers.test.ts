@@ -130,12 +130,13 @@ describe('/api/ai/recommend', () => {
     expect((await call('ai/recommend', { facts: { ...facts, roomId: 'DROP TABLE' } }, auth())).status).toBe(400)
   })
 
-  it('returns the card with the saving copied from the facts, not from the model', async () => {
+  // A1: code writes the title and action from the rule; the model writes only the reason.
+  it('returns only the reason, never a model-written action', async () => {
     vi.stubEnv('GROQ_API_KEY', 'k')
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(llmReply({ title: 'Switch off LH-1', action: 'Switch off the lights.', reason: 'LH-1 draws 320 W, ₹2.79 per hour.', priority: 'medium' })))
-    const res = await call('ai/recommend', { facts }, auth())
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(llmReply({ title: 'Set it to 21 °C', action: 'Set the thermostat to 21 °C.', reason: 'LH-1 draws 320 W, ₹2.79 per hour.' })))
+    const res = await call('ai/recommend', { facts, action: 'Switch off 2 lights in Lecture Hall 1 now.' }, auth())
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ title: 'Switch off LH-1', monthlySavingCost: 525 })
+    expect(await res.json()).toEqual({ reason: 'LH-1 draws 320 W, ₹2.79 per hour.' })
   })
 })
 

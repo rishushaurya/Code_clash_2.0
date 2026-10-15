@@ -9,8 +9,8 @@
 //   - the browser only fills the setup form with it; nothing is saved until the person presses Save.
 
 import { z } from 'zod'
-import { json, logJson, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
-import { aiConfigured, chatJson } from '../../_lib/llm.js'
+import { json, rateLimit, readBody, requireWorkspace } from '../../_lib/http.js'
+import { aiFailure, chatJson } from '../../_lib/llm.js'
 
 type RoomType = 'lecture_hall' | 'classroom' | 'lab' | 'office' | 'meeting' | 'other'
 
@@ -190,7 +190,6 @@ export function keepStated(draft: SetupDraft, text: string) {
 export async function POST(req: Request) {
   const id = requireWorkspace(req)
   if (id instanceof Response) return id
-  if (!aiConfigured()) return json({ error: 'No AI key configured' }, 503)
   const limited = rateLimit(req, 6)
   if (limited) return limited
   const body = await readBody(req, z.object({ text: z.string().trim().min(10).max(8000) }), 20_000)
@@ -198,11 +197,10 @@ export async function POST(req: Request) {
   // The closing tag cannot be smuggled in to end the data block early.
   const said = body.text.replaceAll(/<\/?site_description>/gi, '')
   try {
-    const raw = await chatJson(SYSTEM, `<site_description>\n${said}\n</site_description>`, Raw)
+    const raw = await chatJson({ workspace: id, task: 'chat' }, SYSTEM, `<site_description>\n${said}\n</site_description>`, Raw)
     const result = keepStated(normalize(raw, said), said)
     return json({ ...result, unclear: raw.unclear })
   } catch (e) {
-    logJson('warn', 'setup failed', { workspace: id, error: String(e).slice(0, 300) })
-    return json({ error: 'AI unavailable' }, 502)
+    return aiFailure(e, 'setup', { workspace: id })
   }
 }
