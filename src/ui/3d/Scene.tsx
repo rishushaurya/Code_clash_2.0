@@ -7,13 +7,13 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { DeviceType, Room, RoomState } from '@/shared/types'
+import type { CameraConfig, DeviceType, Room, RoomState } from '@/shared/types'
 import { STATUS } from '../components/status'
 import { bbox, blockers, collide, placeDevices, roomAt, WALL, type FloorGeo, type Model, type Placed, type RoomGeo, type V2 } from './model'
 import type { Outline } from './osm'
 
 export type Mode = 'orbit' | 'walk' | 'fly'
-export type Selection = { kind: 'room'; id: string } | { kind: 'device'; id: string; roomId: string } | null
+export type Selection = { kind: 'room'; id: string } | { kind: 'device' | 'camera'; id: string; roomId: string } | null
 
 /** Design tokens read from CSS, so the model follows the light and dark themes */
 export interface Tokens {
@@ -65,6 +65,9 @@ interface Props {
   input: RefObject<Input>
   onRoom: (id: string) => void
   onDevice: (id: string, roomId: string) => void
+  /** Cameras of the workspace, drawn where they were placed */
+  cameras: Record<string, CameraConfig>
+  onCamera: (id: string, roomId: string) => void
   onPlace: (roomId: string, local: [number, number, number]) => void
   onMove: (id: string, shift: V2 | null) => void
 }
@@ -145,7 +148,7 @@ export function Scene(props: Props) {
       </Bvh>
       {outline && mode !== 'walk' && <Shell outline={outline} model={model} tokens={tokens} />}
       {mode === 'orbit' ? (
-        <Orbit {...props} centre={centre} span={span} />
+        <Orbit {...props} span={span} />
       ) : (
         <Walker {...props} floor={model.floors.find((f) => f.level === levels[0]) ?? model.floors[0]} fly={mode === 'fly'} />
       )}
@@ -164,18 +167,27 @@ export function Scene(props: Props) {
   )
 }
 
-function Orbit({ api, centre, span, model, reduced, explode }: Props & { centre: THREE.Vector3; span: number }) {
+function Orbit({ api, span, model, reduced, explode, levels }: Props & { span: number }) {
   const ref = useRef<CameraControls>(null)
+  const framed = useRef(false)
   useEffect(() => {
     const c = ref.current
     if (!c) return
-    // Far enough that the building's bounding sphere fills most of the view, from the south-east and above.
-    const height = model.top + (explode ? EXPLODE_GAP * (model.floors.length - 1) : 0)
-    const radius = 0.5 * Math.hypot(model.max[0] - model.min[0], model.max[1] - model.min[1], height)
+    // One floor picked: frame that floor. Otherwise the whole building, exploded or not.
+    const one = levels.length === 1 ? model.floors.find((f) => f.level === levels[0]) : undefined
+    const box = one ? floorBox(one) : { min: model.min, max: model.max }
+    const base = one ? one.y : 0
+    const height = one ? one.h : model.top + (explode ? EXPLODE_GAP * (model.floors.length - 1) : 0)
+    const cx = (box.min[0] + box.max[0]) / 2
+    const cz = (box.min[1] + box.max[1]) / 2
+    // Far enough that the bounding sphere fills most of the view, from the south-east and above.
+    const radius = 0.5 * Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], height)
     const d = (radius / Math.sin((55 * Math.PI) / 360)) * 1.05
     const dir = new THREE.Vector3(0.4, 0.85, 0.6).normalize().multiplyScalar(d)
-    const reset = (smooth: boolean) => c.setLookAt(centre.x + dir.x, height / 2 + dir.y, centre.z + dir.z, centre.x, height / 2, centre.z, smooth)
-    void reset(false)
+    const y = base + height / 2
+    const reset = (smooth: boolean) => c.setLookAt(cx + dir.x, y + dir.y, cz + dir.z, cx, y, cz, smooth)
+    void reset(framed.current && !reduced)
+    framed.current = true
     api.current = {
       reset: () => void reset(!reduced),
       focus: (id) => {
@@ -185,8 +197,8 @@ function Orbit({ api, centre, span, model, reduced, explode }: Props & { centre:
         void c.setLookAt(r.center[0] + d * 0.5, r.y + r.h + d, r.center[1] + d, r.center[0], r.y, r.center[1], !reduced)
       },
     }
-    // Only when the building's extent changes, not on every edit.
-  }, [Math.round(span), model.top, reduced, explode])
+    // Only when the building's extent or the picked floor changes, not on every edit.
+  }, [Math.round(span), model.top, reduced, explode, levels.join()])
   return <CameraControls ref={ref} makeDefault maxPolarAngle={Math.PI / 2 - 0.05} minDistance={3} maxDistance={span * 5} smoothTime={reduced ? 0 : 0.25} />
 }
 
@@ -204,14 +216,13 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   useEffect(() => {
     const start = () => {
       const { floor, box, segs } = latest.current
-      const r = floor.rooms.find((x) => x.id === walkStart?.id)
-      const wide = box.max[0] - box.min[0] >= box.max[1] - box.min[1]
-      // Start in the chosen room, else at the end of the floor's long centre line (the corridor) looking along it.
-      const p: V2 = r ? r.center : wide ? [box.min[0] + 0.8, (box.min[1] + box.max[1]) / 2] : [(box.min[0] + box.max[0]) / 2, box.min[1] + 0.8]
+      // Start in the chosen room; else outside the ground floor facing it, or in the first room upstairs.
+      const r = floor.rooms.find((x) => x.id === walkStart?.id) ?? (floor.y > 0 ? floor.rooms[0] : undefined)
+      const p: V2 = r ? r.center : [box.min[0] - 3, (box.min[1] + box.max[1]) / 2]
       const [x, z] = fly ? p : collide(p, 0.3, segs)
       camera.position.set(x, floor.y + (fly ? EYE + 4 : EYE), z)
-      // Look along the room's or floor's longer side.
-      const along = r ? r.size[0] >= r.size[1] : wide
+      // Look along the room's longer side, or at the building.
+      const along = r ? r.size[0] >= r.size[1] : true
       look.current = { yaw: along ? -Math.PI / 2 : Math.PI, pitch: fly ? -0.3 : 0 }
     }
     start()
@@ -282,7 +293,7 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   return null
 }
 
-function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, onRoom, onDevice, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
+function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, selected, reduced, cameras, onRoom, onDevice, onCamera, onPlace, onMove }: Props & { floor: FloorGeo; lift: number }) {
   const ref = useRef<THREE.Group>(null)
   const walls = useDisposable(() => wallGeometry(floor, false), [floor])
   const glass = useDisposable(() => wallGeometry(floor, true), [floor])
@@ -340,7 +351,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
         </mesh>
       )}
       {inside && (
-        // One ceiling over the whole floor, corridor included, at the floor's height.
+        // One ceiling over the whole floor, gaps between rooms included, at the floor's height.
         <mesh position={[(box.min[0] + box.max[0]) / 2, floor.h + 0.05, (box.min[1] + box.max[1]) / 2]} onClick={(e) => place(e)}>
           <boxGeometry args={[box.max[0] - box.min[0] + 0.4, 0.1, box.max[1] - box.min[1] + 0.4]} />
           <meshStandardMaterial color={tokens.surface} roughness={1} />
@@ -388,6 +399,26 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
         />
       ))}
       <Fixtures placed={placed} rooms={rooms} tokens={tokens} reduced={reduced} selected={selected} onDevice={placing ? undefined : onDevice} />
+      {Object.entries(cameras).map(([id, c]) => {
+        const r = floor.rooms.find((g) => g.id === c.roomId)
+        if (!r || !c.position) return null
+        const sel = selected?.kind === 'camera' && selected.id === id
+        return (
+          <mesh
+            key={id}
+            name={`Camera ${id}`}
+            position={[r.origin[0] + c.position[0], c.position[1], r.origin[1] + c.position[2]]}
+            onClick={(e) => {
+              if (placing || e.delta > 5) return
+              e.stopPropagation()
+              onCamera(id, c.roomId)
+            }}
+          >
+            <boxGeometry args={[0.16, 0.12, 0.22]} />
+            <meshStandardMaterial color={sel ? tokens.highlight : tokens.text} roughness={0.4} />
+          </mesh>
+        )
+      })}
     </group>
   )
 }

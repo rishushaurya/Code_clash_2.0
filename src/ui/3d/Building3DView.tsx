@@ -28,8 +28,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { deviceCounts, makeDevices, pushSite, setSite, SiteSchema, useSite } from '@/shared/site'
 import type { DeviceType, RoomState, Site } from '@/shared/types'
-import { ns } from '@/shared/workspace'
 import { send } from '@/twin/realtime'
+import { saveCamera, useCameras } from '@/cv/cameras'
 import { SourceBadges, StatusBadge } from '../components/status'
 import { buildModel, savePolygons, type V2 } from './model'
 import type { Outline } from './osm'
@@ -37,7 +37,7 @@ import { OutlinePanel, Panel, PhotoPanel } from './panels'
 import { Scene, type Input, type Mode, type SceneApi, type Selection, type Tokens } from './Scene'
 
 const DEVICE_LABEL: Record<DeviceType, string> = { light: 'Light', fan: 'Fan', ac: 'AC', projector: 'Projector', pc: 'Computer' }
-const OUTLINE_KEY = ns('pratibimb:3d-outline')
+const PLACE_LABEL: Record<DeviceType | 'camera', string> = { ...DEVICE_LABEL, camera: 'Camera' }
 
 function readTokens(): Tokens {
   const cs = getComputedStyle(document.documentElement)
@@ -76,14 +76,6 @@ function useMedia(q: string) {
     return () => mq.removeEventListener('change', on)
   }, [q])
   return m
-}
-
-function loadOutline(): Outline | null {
-  try {
-    return JSON.parse(localStorage.getItem(OUTLINE_KEY) ?? 'null') as Outline | null
-  } catch {
-    return null
-  }
 }
 
 /** Touch joystick: drag the knob to walk; writes into the shared input the walker reads every frame */
@@ -138,6 +130,7 @@ function Tool({ label, pressed, onClick, children, keyHint }: { label: string; p
 
 export default function Building3DView({ rooms, onSelect }: { rooms: Record<string, RoomState>; onSelect?: (id: string) => void }) {
   const site = useSite((s) => s.site)
+  const cameras = useCameras((s) => s.cameras)
   const tokens = useTokens()
   const reduced = useMedia('(prefers-reduced-motion: reduce)')
   const touch = useMedia('(pointer: coarse)')
@@ -155,14 +148,13 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   const [panel, setPanel] = useState<'help' | 'list' | 'outline' | 'photo' | null>(null)
   const [notice, setNotice] = useState('')
   const [walkRoom, setWalkRoom] = useState<{ id: string } | null>(null)
-  const [outline, setOutlineState] = useState<Outline | null>(loadOutline)
 
   // Edit mode works on a draft; nothing reaches the site until Save.
   const [edit, setEdit] = useState(false)
   const [draft, setDraft] = useState<Site | null>(null)
   const [moved, setMoved] = useState<Record<string, V2>>({})
   const [dirty, setDirty] = useState<number[]>([])
-  const [placing, setPlacing] = useState<DeviceType | null>(null)
+  const [placing, setPlacing] = useState<DeviceType | 'camera' | null>(null)
   const [moving, setMoving] = useState<string | null>(null)
   const dragBase = useRef<{ id: string; base: V2 } | null>(null)
 
@@ -193,15 +185,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     return () => clearTimeout(t)
   }, [notice])
 
-  const setOutline = (o: Outline | null) => {
-    setOutlineState(o)
-    try {
-      if (o) localStorage.setItem(OUTLINE_KEY, JSON.stringify(o))
-      else localStorage.removeItem(OUTLINE_KEY)
-    } catch {
-      // Storage blocked: the outline lasts for this visit.
-    }
-  }
+  const outline = site.outline ?? null
+  const setOutline = (o: Outline | null) => persist({ ...site, outline: o ?? undefined }, o ? 'Outline saved for every device of this workspace.' : 'Outline removed.')
 
   const fullscreen = () => (document.fullscreenElement ? void document.exitFullscreen() : void box.current?.requestFullscreen?.())
 
@@ -233,17 +218,29 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   }
 
   function onPlace(roomId: string, local: [number, number, number]) {
+    // Cameras are saved at once with the camera's own settings; devices wait in the draft until Save.
+    if (placing === 'camera' || (moving && cameras[moving])) {
+      const ids = Object.keys(cameras).filter((id) => cameras[id].roomId === roomId).sort()
+      const cam = moving && cameras[moving] ? moving : ids.find((id) => !cameras[id].position)
+      if (!cam) return setNotice(ids.length ? 'Every camera of this room is placed. Select one to move it.' : 'This room has no camera yet. Add one on the Cameras page first.')
+      if (cameras[cam].roomId !== roomId) return setNotice('Move a camera within its own room.')
+      saveCamera(cam, { ...cameras[cam], position: local, updatedAt: Date.now() })
+      setSelected({ kind: 'camera', id: cam, roomId })
+      setMoving(null)
+      return setNotice(`${cameras[cam].name || cam} placed at ${local.map((v) => v.toFixed(2)).join(', ')} m and saved.`)
+    }
+    const type = placing
     const d = draft ?? site
     const room = d.rooms.find((r) => r.id === roomId)
     if (!room) return
     let devices = room.devices
     let target = moving
     if (target && !devices.some((x) => x.id === target)) return setNotice('Move a device within its own room.')
-    if (!target && placing) target = devices.find((x) => x.type === placing && !x.position)?.id ?? null
-    if (!target && placing) {
+    if (!target && type) target = devices.find((x) => x.type === type && !x.position)?.id ?? null
+    if (!target && type) {
       // Every device of this type already has a spot: this click adds one more.
       const counts = deviceCounts(room)
-      const fresh = makeDevices(room.id, { ...counts, [placing]: (counts[placing] ?? 0) + 1 }, Object.fromEntries(room.devices.map((x) => [x.type, x.ratedW])))
+      const fresh = makeDevices(room.id, { ...counts, [type]: (counts[type] ?? 0) + 1 }, Object.fromEntries(room.devices.map((x) => [x.type, x.ratedW])))
       devices = fresh.map((x) => room.devices.find((o) => o.id === x.id) ?? x)
       target = devices.find((x) => !room.devices.some((o) => o.id === x.id))?.id ?? null
     }
@@ -269,14 +266,24 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
     setMoving(null)
   }
 
-  async function save(next = savePolygons(working, model, dirty)) {
+  /** Saves a whole site here, on the server and on every open screen of the workspace (the Site setup path) */
+  function persist(next: Site, done?: string) {
     const parsed = SiteSchema.safeParse(next)
-    if (!parsed.success) return setNotice(`Not saved: ${parsed.error.issues[0]?.path.join(' > ')} ${parsed.error.issues[0]?.message}`)
+    if (!parsed.success) {
+      setNotice(`Not saved: ${parsed.error.issues[0]?.path.join(' > ')} ${parsed.error.issues[0]?.message}`)
+      return false
+    }
     setSite(parsed.data)
-    discard()
-    const where = await pushSite(useSite.getState().site)
-    if (where === 'server') send('site', { ts: Date.now() })
-    setNotice(where === 'server' ? 'Saved. Every device of this workspace now shows these changes.' : 'Saved on this device.')
+    void pushSite(useSite.getState().site).then((where) => {
+      if (where === 'server') send('site', { ts: Date.now() })
+      setNotice(done ?? (where === 'server' ? 'Saved. Every device of this workspace now shows these changes.' : 'Saved on this device.'))
+    })
+    return true
+  }
+
+  function save() {
+    // The draft was copied when editing began; keep an outline chosen since then.
+    if (persist({ ...savePolygons(working, model, dirty), outline: useSite.getState().site.outline })) discard()
   }
 
   async function exportGlb() {
@@ -325,6 +332,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
 
   const selRoom = selected && working.rooms.find((r) => r.id === (selected.kind === 'room' ? selected.id : selected.roomId))
   const selDevice = selected?.kind === 'device' ? selRoom?.devices.find((d) => d.id === selected.id) : undefined
+  const selCamera = selected?.kind === 'camera' ? cameras[selected.id] : undefined
   const floorName = (level: number) => {
     const f = site.floors.find((x) => x.level === level)
     return f ? (f.building ? `${f.building}, ${f.name}` : f.name) : `Floor ${level}`
@@ -379,6 +387,8 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
           input={input}
           onRoom={(id) => selectRoom(id)}
           onDevice={(id, roomId) => setSelected({ kind: 'device', id, roomId })}
+          cameras={cameras}
+          onCamera={(id, roomId) => setSelected({ kind: 'camera', id, roomId })}
           onPlace={onPlace}
           onMove={onMove}
         />
@@ -526,17 +536,48 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 site={site}
                 onClose={() => setPanel(null)}
                 onApply={(next, n) => {
-                  void save(next)
-                  setPanel(null)
-                  setNotice(`Shapes of ${n} rooms saved from the photo.`)
+                  if (persist(next, `Shapes of ${n} rooms saved from the photo.`)) setPanel(null)
                 }}
               />
             )}
           </div>
 
           {selRoom && !compact && (
-            <Panel title={selDevice ? `${DEVICE_LABEL[selDevice.type]} ${selDevice.id}` : `${selRoom.id} ${selRoom.name !== selRoom.id ? selRoom.name : ''}`} onClose={() => setSelected(null)} className="ml-auto w-72">
-              {selDevice ? (
+            <Panel title={selCamera ? `Camera ${selCamera.name || selected?.id}` : selDevice ? `${DEVICE_LABEL[selDevice.type]} ${selDevice.id}` : `${selRoom.id} ${selRoom.name !== selRoom.id ? selRoom.name : ''}`} onClose={() => setSelected(null)} className="ml-auto w-72">
+              {selCamera && selected ? (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground">
+                    {selCamera.position
+                      ? `Placed at x ${selCamera.position[0]} m, height ${selCamera.position[1]} m, z ${selCamera.position[2]} m from the room's corner.`
+                      : 'Not placed yet.'}
+                  </p>
+                  {edit && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant={moving === selected.id ? 'default' : 'outline'}
+                        onClick={() => {
+                          setMoving(selected.id)
+                          setPlacing(null)
+                          setNotice(mode === 'orbit' ? 'Walk into the room, then click the ceiling or wall where it is.' : 'Click the ceiling or wall where it is.')
+                        }}
+                      >
+                        {moving === selected.id ? 'Click where it is' : 'Move'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          saveCamera(selected.id, { ...selCamera, position: undefined, updatedAt: Date.now() })
+                          setSelected(null)
+                        }}
+                      >
+                        Clear position
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : selDevice ? (
                 <DeviceDetails
                   device={selDevice}
                   state={rooms[selRoom.id]}
@@ -603,12 +644,12 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                 {mode === 'orbit' ? (isolate === null ? 'Pick one floor to drag its rooms on the grid.' : 'Drag rooms on the grid.') : 'Place:'}
               </span>
               {mode !== 'orbit' &&
-                (Object.keys(DEVICE_LABEL) as DeviceType[]).map((t) => (
+                (Object.keys(PLACE_LABEL) as (DeviceType | 'camera')[]).map((t) => (
                   <Button key={t} size="sm" variant={placing === t ? 'default' : 'outline'} aria-pressed={placing === t} onClick={() => {
                       setPlacing(placing === t ? null : t)
                       setMoving(null)
                     }}>
-                    {DEVICE_LABEL[t]}
+                    {PLACE_LABEL[t]}
                   </Button>
                 ))}
               {mode === 'orbit' && (
@@ -620,7 +661,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
               <Button size="sm" variant="ghost" disabled={!unsaved} onClick={discard}>
                 <Undo2 /> Discard
               </Button>
-              <Button size="sm" disabled={!unsaved} onClick={() => void save()}>
+              <Button size="sm" disabled={!unsaved} onClick={save}>
                 <Save /> Save
               </Button>
             </div>
@@ -629,7 +670,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
       </div>
 
       <p role="status" aria-live="polite" className={cn('pointer-events-none absolute bottom-20 left-1/2 z-30 max-w-[90%] -translate-x-1/2 rounded-full bg-primary px-3 py-1.5 text-center text-sm text-primary-foreground shadow transition-opacity', notice ? 'opacity-100' : 'opacity-0')}>
-        {notice || (placing ? `Click a ceiling, wall or floor to place a ${DEVICE_LABEL[placing].toLowerCase()}.` : '')}
+        {notice || (placing ? `Click a ceiling, wall or floor to place a ${PLACE_LABEL[placing].toLowerCase()}.` : '')}
       </p>
     </div>
   )

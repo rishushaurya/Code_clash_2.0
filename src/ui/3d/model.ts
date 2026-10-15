@@ -1,9 +1,9 @@
 // The 3D model is computed from the site alone, so every customer gets one with no extra input.
 // Plan units: SVG x becomes world x, SVG y becomes world z, both in metres; y is up.
-// Rooms with a drawn polygon keep their shape, scaled so the building's rooms add up to their areas.
-// Rooms laid out automatically are placed along a central corridor, each sized to its own area,
-// so the model can be walked through room by room.
+// Every room keeps its floor-plan polygon (drawn, or laid out by layoutRooms), scaled so the building's rooms
+// add up to their recorded areas: the 3D model and the 2D floor plan show the same building.
 
+import { layoutRooms } from '@/shared/site'
 import type { Device, DeviceType, Room, Site } from '@/shared/types'
 
 export type V2 = [number, number]
@@ -13,7 +13,6 @@ export const DOOR_W = 0.9
 export const DOOR_H = 2.1
 const SILL = 0.9
 const HEAD = 2.2
-const CORRIDOR = 2.4
 const BUILDING_GAP = 12
 /** Plan margin used by the automatic floor plan (layoutRooms): polygons start at 20 SVG units */
 const PLAN_MARGIN = 20
@@ -103,33 +102,6 @@ export function inPoly([x, z]: V2, p: V2[]) {
   }
   return inside
 }
-
-const rect = (x: number, z: number, w: number, d: number): V2[] => [[x, z], [x + w, z], [x + w, z + d], [x, z + d]]
-
-/**
- * Rooms along a corridor running in x: two rows, each room as deep as the building's rooms on average
- * and as wide as its own area needs. Small rooms keep a 3 m frontage and get shallower instead.
- */
-export function corridorLayout(rooms: Pick<Room, 'id' | 'areaM2'>[], depth: number, start: V2 = [0, 0]): Map<string, V2[]> {
-  const out = new Map<string, V2[]>()
-  const run = [0, 0]
-  for (const r of rooms) {
-    const row = run[0] <= run[1] ? 0 : 1
-    let w = r.areaM2 / depth
-    let d = depth
-    if (w < 3) [w, d] = [3, r.areaM2 / 3]
-    const x = start[0] + run[row]
-    // Both rows touch the corridor: the first row ends at it, the second starts after it.
-    const z = row === 0 ? start[1] + depth - d : start[1] + depth + CORRIDOR
-    out.set(r.id, rect(x, z, w, d))
-    run[row] += w
-  }
-  return out
-}
-
-/** Depth of a building's rooms: the square root of the mean area, kept between 5 and 10 m */
-export const roomDepth = (rooms: Pick<Room, 'areaM2'>[]) =>
-  rooms.length ? Math.min(10, Math.max(5, Math.round(2 * Math.sqrt(rooms.reduce((a, r) => a + r.areaM2, 0) / rooms.length)) / 2)) : 6
 
 /** Metres per plan unit, so the drawn rooms of a building add up to their recorded areas */
 export function planScale(rooms: Pick<Room, 'areaM2' | 'polygon'>[]) {
@@ -262,7 +234,7 @@ export function floorWalls(rooms: RoomGeo[]): WallPiece[] {
         const marks = [lo, hi, ...outside.flat().filter((m) => m > lo + EPS && m < hi - EPS)].sort((x, y) => x - y)
         for (let k = 0; k < marks.length - 1; k++) {
           const [u, v] = [marks[k], marks[k + 1]]
-          // Windows on outside walls, but not the one with the door (it faces the corridor).
+          // Windows on outside walls, but not the one with the door.
           if (r.windowSide && !cuts.length && isOutside(u, v) && v - u > 1.2 && r.h > HEAD) {
             pieces.push({ a: at(u), b: at(v), y0: 0, y1: SILL, glass: false })
             pieces.push({ a: at(u), b: at(v), y0: SILL, y1: HEAD, glass: true })
@@ -300,7 +272,9 @@ export function collide(p: V2, r: number, segs: { a: V2; b: V2 }[]): V2 {
  * The whole site in metres. `moved` shifts rooms by [dx, dz] metres while they are dragged in edit mode.
  * Buildings of a campus stand side by side along x; floors stack by their tallest room (3 m when unset).
  */
-export function buildModel(site: Pick<Site, 'floors' | 'rooms'>, moved: Record<string, V2> = {}): Model {
+export function buildModel(input: Pick<Site, 'floors' | 'rooms'>, moved: Record<string, V2> = {}): Model {
+  // Rooms without a drawn shape get the same automatic layout as the floor plan.
+  const site = { ...input, rooms: layoutRooms(input.rooms) }
   const floorOf = new Map(site.floors.map((f) => [f.level, f]))
   const levels = [...new Set([...site.floors.map((f) => f.level), ...site.rooms.map((r) => r.floor)])].sort((a, b) => a - b)
   const buildingOf = (level: number) => floorOf.get(level)?.building ?? ''
@@ -311,25 +285,12 @@ export function buildModel(site: Pick<Site, 'floors' | 'rooms'>, moved: Record<s
   for (const name of names) {
     const bLevels = levels.filter((l) => buildingOf(l) === name)
     const bRooms = site.rooms.filter((r) => bLevels.includes(r.floor))
-    const drawn = bRooms.filter((r) => !r.autoLayout && r.polygon)
-    const auto = bRooms.filter((r) => r.autoLayout || !r.polygon)
-    const depth = roomDepth(auto)
-    // Local building metres first; the building is moved into place once its extent is known.
-    let scale = planScale(drawn)
+    // Every room is drawn from its floor-plan polygon, so the 3D model and the 2D plan always match.
+    const scale = planScale(bRooms) || 0.05
     const local = new Map<string, V2[]>()
-    for (const r of drawn) local.set(r.id, r.polygon!.map((p) => mul(sub(p, [PLAN_MARGIN, PLAN_MARGIN]), scale)))
-    for (const level of bLevels) {
-      const todo = auto.filter((r) => r.floor === level)
-      // Undrawn rooms on a floor with drawings line up beside the drawings, ready to be dragged into place.
-      const drawnHere = drawn.filter((r) => r.floor === level).flatMap((r) => local.get(r.id)!)
-      const drawnBox = drawnHere.length ? bbox(drawnHere) : null
-      const start: V2 = drawnBox ? [drawnBox.max[0] + 4, drawnBox.min[1]] : [0, 0]
-      for (const [id, poly] of corridorLayout(todo, depth, start)) local.set(id, poly)
-    }
+    for (const r of bRooms) if (r.polygon) local.set(r.id, r.polygon.map((p) => mul(sub(p, [PLAN_MARGIN, PLAN_MARGIN]), scale)))
     const all = [...local.values()].flat()
     const box = all.length ? bbox(all) : { min: [0, 0] as V2, max: [10, 10] as V2 }
-    // A building with no drawings gets the scale that fits its corridor plan into the 1000 x 600 floor plan.
-    if (!scale) scale = Math.max((box.max[0] - box.min[0]) / (1000 - 2 * PLAN_MARGIN), (box.max[1] - box.min[1]) / (600 - 2 * PLAN_MARGIN), 0.01)
     const offset: V2 = [cursor - box.min[0], -box.min[1]]
     const heights = bLevels.map((l) => Math.max(3, ...site.rooms.filter((r) => r.floor === l).map((r) => r.heightM ?? 3)))
     // Level 0 (or the lowest level above ground) stands on the ground; basements go below it.

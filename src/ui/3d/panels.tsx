@@ -100,12 +100,13 @@ export function OutlinePanel({ site, outline, onOutline, onClose }: { site: Site
         </div>
       )}
       <p className="mt-3 text-xs text-muted-foreground">
-        Map data OpenStreetMap contributors (ODbL). Kept on this device.
+        Map data OpenStreetMap contributors (ODbL). Saved with the site, so every device shows it.
       </p>
     </Panel>
   )
 }
 
+/** The answer of POST /api/ai/floorplan (api/_routes/ai/floorplan.ts): rectangles as fractions of the photo */
 export interface FloorplanProposal {
   floors: { name: string; rooms: { name: string; x: number; y: number; w: number; h: number }[] }[]
 }
@@ -161,8 +162,18 @@ export function PhotoPanel({ site, onApply, onClose }: { site: Site; onApply: (n
       const pic = await toDataUrl(f)
       setPhoto(pic)
       const res = await apiFetch('/api/ai/floorplan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image: pic.url }) })
-      if (res.status === 404) return setState({ error: 'Reading floor plans is not available on this server yet.' })
-      if (!res.ok) return setState({ error: `The AI could not read the plan (${res.status}). Try a straighter, brighter photo.` })
+      if (!res.ok) {
+        // The route answers { error, code? }: 503 no-key when no vision key is set, 429 when called too often.
+        const { error, code } = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+        return setState({
+          error:
+            code === 'no-key'
+              ? 'No AI key can read photos yet. Add one in Settings, Keys and AI.'
+              : res.status === 429
+                ? 'Too many photos in a row. Wait a minute and try again.'
+                : `The AI could not read the plan${error ? `: ${error}` : ` (${res.status})`}. Try a straighter, brighter photo.`,
+        })
+      }
       const p = (await res.json()) as FloorplanProposal
       if (!p.floors?.some((x) => x.rooms.length)) return setState({ error: 'No rooms were found in this photo. Try a closer, straighter photo of the plan.' })
       // Floors match by name, else by order; rooms by id or name on that floor.
