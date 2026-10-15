@@ -153,7 +153,7 @@ describe('cooling advice', () => {
     const room = getRoom('LH-1')!
     const ac = room.devices.find((d) => d.type === 'ac')!
     const state = { roomId: 'LH-1', headcount: 30, occupancyKnown: true, occupied: true, emptySince: null, deviceOn: { [ac.id]: true }, watts: 1500, metered: false, co2ppm: 600, co2Measured: false, status: 'occupied' as const, sources: ['camera' as const], zones: {}, kwh: 0, cost: 0, co2Kg: 0, wasteCost: 0, updatedAt: 0 }
-    const ctx = { now: 0, minuteOfDay: 8 * 60, currency: 'INR', cloudCover: 90, autoOffSaving: {}, consolidateSaving: {} }
+    const ctx = { now: 0, minuteOfDay: 8 * 60, currency: 'INR', tariffPerKwh: 8.73, cloudCover: 90, autoOffSaving: {}, consolidateSaving: {} }
     expect(alertTypesFor(room, state, { ...ctx, outdoorTempC: 21 })).toContain('ac_mild_weather')
     expect(alertTypesFor(room, state, { ...ctx, outdoorTempC: 31 })).not.toContain('ac_mild_weather')
     expect(alertTypesFor(room, state, { ...ctx, outdoorTempC: null })).not.toContain('ac_mild_weather')
@@ -210,7 +210,7 @@ describe('overcooling advice', () => {
     const room = getRoom('LH-1')!
     const ac = room.devices.find((d) => d.type === 'ac')!
     const state = { roomId: 'LH-1', headcount: 30, occupancyKnown: true, occupied: true, emptySince: null, deviceOn: { [ac.id]: true }, watts: 1500, metered: false, co2ppm: 600, co2Measured: false, temperatureC: 20, status: 'occupied' as const, sources: ['sensor' as const], zones: {}, kwh: 0, cost: 0, co2Kg: 0, wasteCost: 0, updatedAt: 0 }
-    const ctx = { now: 0, minuteOfDay: 8 * 60, currency: 'INR', cloudCover: 90, autoOffSaving: {}, consolidateSaving: {} }
+    const ctx = { now: 0, minuteOfDay: 8 * 60, currency: 'INR', tariffPerKwh: 8.73, cloudCover: 90, autoOffSaving: {}, consolidateSaving: {} }
     expect(alertTypesFor(room, state, ctx)).toContain('ac_overcooling')
     expect(factsFor(room, state, 'ac_overcooling', ctx, [room])).toMatchObject({ indoorTempC: 20, acSavingPercent: 24 }) // BEE: 20 to 24 C saves about 24 %
     expect(alertTypesFor(room, { ...state, temperatureC: 23.5 }, ctx)).not.toContain('ac_overcooling')

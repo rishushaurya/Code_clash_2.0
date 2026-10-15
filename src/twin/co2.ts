@@ -2,7 +2,7 @@
 //   dC/dt = N * G * 1e6 / V  -  (Q / V) * (C - C_out)
 // G = CO2 per seated person (m3/s), V = room volume (m3), Q = ventilation (m3/s).
 
-import { CO2_OUTDOOR_PPM, CO2_PER_PERSON_M3S, VENTILATION_ACH } from '@/shared/config'
+import { CO2_OUTDOOR_PPM, CO2_PER_PERSON_M3S, VENTILATION_ACH } from '../shared/config.js'
 
 export function stepCo2(ppm: number, people: number, volumeM3: number, dtS: number, ach = VENTILATION_ACH) {
   const q = (ach * volumeM3) / 3600

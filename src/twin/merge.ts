@@ -1,7 +1,7 @@
 // Several cameras can watch one room. Merge their latest readings into one view.
 
-import { CAMERA_FRESH_MS } from '@/shared/config'
-import type { CvReading, Room } from '@/shared/types'
+import { CAMERA_FRESH_MS } from '../shared/config.js'
+import type { CvReading, Room } from '../shared/types'
 
 export interface MergedView {
   headcount: number
@@ -14,8 +14,8 @@ export interface MergedView {
  * Head-count: 'max' when views overlap (no double counting), 'sum' when cameras split the room.
  * Zones (lights, fans, screens): on if any fresh camera sees them on. Stale cameras are ignored.
  */
-export function mergeReadings(room: Room, latestByCamera: CvReading[], now: number): MergedView | null {
-  const fresh = latestByCamera.filter((r) => r.roomId === room.id && now - r.ts <= CAMERA_FRESH_MS)
+export function mergeReadings(room: Room, latestByCamera: CvReading[], now: number, freshMs = CAMERA_FRESH_MS): MergedView | null {
+  const fresh = latestByCamera.filter((r) => r.roomId === room.id && now - r.ts <= freshMs)
   if (!fresh.length) return null
   const counts = fresh.map((r) => r.headcount)
   const zones: Record<string, boolean> = {}
