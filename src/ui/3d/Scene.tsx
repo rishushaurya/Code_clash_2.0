@@ -58,7 +58,8 @@ interface Props {
   reduced: boolean
   compact: boolean
   outline: Outline | null
-  walkStart: string | null
+  /** A new object moves the walker into that room */
+  walkStart: { id: string } | null
   api: RefObject<SceneApi | null>
   group: RefObject<THREE.Group | null>
   input: RefObject<Input>
@@ -196,20 +197,26 @@ function Walker({ floor, fly, input, api, walkStart }: Props & { floor: FloorGeo
   const keys = useRef(new Set<string>())
   const segs = useMemo(() => blockers(floor.walls), [floor])
   const box = useMemo(() => floorBox(floor), [floor])
+  // Edits rebuild the floor; the walker restarts only when the floor, mode or chosen room changes.
+  const latest = useRef({ floor, box, segs })
+  latest.current = { floor, box, segs }
 
   useEffect(() => {
     const start = () => {
-      const r = floor.rooms.find((x) => x.id === walkStart)
+      const { floor, box, segs } = latest.current
+      const r = floor.rooms.find((x) => x.id === walkStart?.id)
       const wide = box.max[0] - box.min[0] >= box.max[1] - box.min[1]
       // Start in the chosen room, else at the end of the floor's long centre line (the corridor) looking along it.
       const p: V2 = r ? r.center : wide ? [box.min[0] + 0.8, (box.min[1] + box.max[1]) / 2] : [(box.min[0] + box.max[0]) / 2, box.min[1] + 0.8]
       const [x, z] = fly ? p : collide(p, 0.3, segs)
       camera.position.set(x, floor.y + (fly ? EYE + 4 : EYE), z)
-      look.current = { yaw: r ? 0 : wide ? -Math.PI / 2 : Math.PI, pitch: fly ? -0.3 : 0 }
+      // Look along the room's or floor's longer side.
+      const along = r ? r.size[0] >= r.size[1] : wide
+      look.current = { yaw: along ? -Math.PI / 2 : Math.PI, pitch: fly ? -0.3 : 0 }
     }
     start()
     api.current = { reset: start, focus: () => undefined }
-  }, [floor, fly, walkStart, box, camera, segs, api])
+  }, [floor.level, fly, walkStart, camera, api])
 
   useEffect(() => {
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)
@@ -313,6 +320,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
 
   const drag = useRef<{ id: string; from: THREE.Vector3; plane: THREE.Plane } | null>(null)
   const canDrag = edit && mode === 'orbit'
+  const controls = useThree((st) => st.controls) as unknown as { enabled: boolean } | null
 
   return (
     <group ref={ref} name={floor.name} position-y={floor.y + lift}>
@@ -358,6 +366,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
             e.stopPropagation()
             ;(e.target as Element).setPointerCapture(e.pointerId)
             drag.current = { id: g.id, from: e.point.clone(), plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -e.point.y) }
+            if (controls) controls.enabled = false
             onMove(g.id, [0, 0])
           }}
           onPointerMove={(e) => {
@@ -372,6 +381,7 @@ function Floor({ floor, lift, rooms, siteRooms, tokens, mode, edit, placing, sel
             if (!drag.current) return
             ;(e.target as Element).releasePointerCapture(e.pointerId)
             drag.current = null
+            if (controls) controls.enabled = true
             onMove(g.id, null)
           }}
           onLabel={() => onRoom(g.id)}
@@ -421,7 +431,7 @@ function RoomTile({
         <meshStandardMaterial ref={mat} color={colour} transparent opacity={base} depthWrite={false} />
       </mesh>
       <Line points={outline} color={selected ? tokens.highlight : colour} lineWidth={selected ? 4 : status === 'waste' ? 3 : 1.5} dashed={status === 'unknown'} dashSize={0.5} gapSize={0.35} />
-      <Html position={[geo.center[0], inside ? Math.min(geo.h - 0.4, 2.4) : geo.h + 0.8, geo.center[1]]} center zIndexRange={[10, 0]}>
+      <Html position={[geo.center[0], inside ? Math.min(geo.h - 0.4, 2.4) : geo.h + 0.8, geo.center[1]]} center zIndexRange={[10, 0]} occlude={inside}>
         <button
           type="button"
           onClick={onLabel}

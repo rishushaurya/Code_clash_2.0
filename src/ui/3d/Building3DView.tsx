@@ -154,6 +154,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   const [selected, setSelected] = useState<Selection>(null)
   const [panel, setPanel] = useState<'help' | 'list' | 'outline' | 'photo' | null>(null)
   const [notice, setNotice] = useState('')
+  const [walkRoom, setWalkRoom] = useState<{ id: string } | null>(null)
   const [outline, setOutlineState] = useState<Outline | null>(loadOutline)
 
   // Edit mode works on a draft; nothing reaches the site until Save.
@@ -207,6 +208,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
   function selectRoom(id: string, focus = false) {
     if (compact && onSelect) return onSelect(id)
     setSelected({ kind: 'room', id })
+    if (mode === 'walk') setWalkRoom({ id })
     if (focus && mode === 'orbit') api.current?.focus(id)
   }
 
@@ -371,7 +373,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
           reduced={reduced}
           compact={compact}
           outline={outline}
-          walkStart={selected?.kind === 'room' && mode === 'walk' ? selected.id : null}
+          walkStart={walkRoom}
           api={api}
           group={group}
           input={input}
@@ -576,6 +578,7 @@ export default function Building3DView({ rooms, onSelect }: { rooms: Record<stri
                         variant="outline"
                         onClick={() => {
                           setIsolate(selRoom.floor)
+                          setWalkRoom({ id: selRoom.id })
                           setMode('walk')
                         }}
                       >

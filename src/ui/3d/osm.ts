@@ -67,11 +67,22 @@ export function parseOverpass(json: { elements?: OverpassWay[] }, lat: number, l
   return { osmId: w.e.id, name: tags.name ?? null, poly: alignToX(w.poly), levels: num(tags['building:levels']), heightM: num(tags.height) }
 }
 
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']
+
 export async function fetchOutline(lat: number, lon: number, signal?: AbortSignal): Promise<Outline | null> {
   const q = `[out:json][timeout:20];way(around:40,${lat},${lon})[building];out tags geom;`
-  const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: new URLSearchParams({ data: q }), signal })
-  if (!res.ok) throw new Error(`OpenStreetMap answered ${res.status}`)
-  return parseOverpass(await res.json(), lat, lon)
+  let status = 0
+  // The public servers are often at capacity; the next one in the list is tried.
+  for (const url of OVERPASS) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: q }), signal })
+      if (res.ok) return parseOverpass(await res.json(), lat, lon)
+      status = res.status
+    } catch (e) {
+      if (signal?.aborted) throw e
+    }
+  }
+  throw new Error(status ? `OpenStreetMap servers are busy (${status}); try again in a minute` : 'OpenStreetMap could not be reached')
 }
 
 /** "12.97, 77.59" is used as typed; anything else is looked up as an address */

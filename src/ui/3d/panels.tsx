@@ -38,7 +38,7 @@ export function OutlinePanel({ site, outline, onOutline, onClose }: { site: Site
       if (!found) return setState({ error: `OpenStreetMap has no building outline within 40 m of ${place.label}.` })
       setState({ found, place: place.label })
     } catch (e) {
-      setState({ error: `The lookup failed: ${e instanceof Error ? e.message : String(e)}. Check the connection and try again.` })
+      setState({ error: `The lookup failed: ${e instanceof Error ? e.message : String(e)}.` })
     }
   }
   const size = (o: Outline) => {
