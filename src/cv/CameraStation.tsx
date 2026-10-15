@@ -4,7 +4,7 @@
 // a reload. Every camera of the workspace is listed with its live status, and a QR code adds a phone.
 // /camera/<room>/new or /camera/<room>/cam-<n> opens with that camera picked (the QR codes use this).
 
-import { Camera, CameraOff, Copy, FileVideo, LayoutDashboard, Play, Plus, QrCode, ShieldCheck, Smartphone, Trash2, Video } from 'lucide-react'
+import { Camera, CameraOff, CircleCheck, Copy, Eye, FileVideo, LayoutDashboard, LoaderCircle, Play, Plus, QrCode, ShieldCheck, Smartphone, Trash2, TriangleAlert, Video } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
@@ -18,14 +18,16 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Toaster } from '@/components/ui/sonner'
 import { CAMERA_FRESH_MS } from '@/shared/config'
+import { every } from '@/shared/timer'
 import { useSite } from '@/shared/site'
-import type { CvReading, Room } from '@/shared/types'
+import type { CameraConfig, CvReading, Room } from '@/shared/types'
 import { joinLink, online, SESSION } from '@/shared/workspace'
 import { EmptyState } from '@/ui/components/states'
 import { CameraFeed } from './CameraFeed'
-import { cameraNumber, defaultZones, nextCameraId, saveCamera, syncCameras, useCameras } from './cameras'
-import { askCameraPermission, listCameras, type SourceChoice } from './sources'
-import { addFeed, removeFeed, useStation } from './station'
+import { cameraNumber, createCamera, nextCameraId, postReadings, saveCamera, syncCameras, useCameras } from './cameras'
+import { coverage, coverageText } from './coverage'
+import { askCameraPermission, listCameras, MIXED_CONTENT, mixedContent, type SourceChoice } from './sources'
+import { addFeed, OFFSCREEN, removeFeed, useStation } from './station'
 
 const isPhone = typeof navigator !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent)
 
@@ -71,36 +73,78 @@ function PhoneDialog({ roomId, camId }: { roomId: string; camId?: string }) {
   )
 }
 
+/** Room-level coverage: only the device types a camera can watch (zones in Setup) */
+function CoverageChips({ room, cameras, label }: { room: Room; cameras: CameraConfig[]; label: string }) {
+  const watchable = new Set(room.devices.filter((d) => d.zone).map((d) => d.type))
+  const rows = coverage(room, cameras).filter((c) => watchable.has(c.type))
+  if (!rows.length) return null
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label={label}>
+      {rows.map((c) => {
+        const full = c.watched === c.total
+        return (
+          <li key={c.type} className={`num inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${full ? 'border-occupied/30 text-occupied' : 'border-warn/40 bg-warn/10 text-warn'}`}>
+            {full ? <CircleCheck className="size-3" aria-hidden /> : <Eye className="size-3" aria-hidden />}
+            {coverageText(c)}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+const DEFAULT = 'default'
+
 function AddCamera({ rooms, initial }: { rooms: Room[]; initial: { roomId: string; cam: string } }) {
   const cameras = useCameras((s) => s.cameras)
   const feeds = useStation((s) => s.feeds)
   const [roomId, setRoomId] = useState(rooms.some((r) => r.id === initial.roomId) ? initial.roomId : (rooms[0]?.id ?? ''))
   const [cam, setCam] = useState(initial.cam || 'new')
   const [devices, setDevices] = useState<{ deviceId: string; label: string }[]>([])
-  const [deviceId, setDeviceId] = useState('')
+  const [deviceId, setDeviceId] = useState(DEFAULT)
   const [whepUrl, setWhepUrl] = useState('')
+  const [busy, setBusy] = useState(false)
   const room = rooms.find((r) => r.id === roomId)
   const running = new Set(feeds.map((f) => f.camId))
   const existing = Object.entries(cameras).filter(([id, c]) => c.roomId === roomId && !running.has(id))
   const choice = cam !== 'new' && existing.some(([id]) => id === cam) ? cam : 'new'
+  const canUseCamera = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia)
+  /** Before permission, browsers list cameras with empty ids and no names */
+  const named = devices.filter((d) => d.deviceId)
+  const blocked = mixedContent(whepUrl)
 
+  // Names appear once a camera has been allowed, so look again whenever a camera starts or one is plugged in.
   useEffect(() => {
-    listCameras()
-      .then((c) => {
-        setDevices(c)
-        setDeviceId((d) => d || c[0]?.deviceId || '')
-      })
-      .catch(() => setDevices([]))
-  }, [])
+    if (!canUseCamera) return
+    const look = () =>
+      listCameras()
+        .then((c) => {
+          setDevices(c)
+          setDeviceId((d) => (d === DEFAULT || c.some((x) => x.deviceId === d) ? d : DEFAULT))
+        })
+        .catch(() => setDevices([]))
+    void look()
+    navigator.mediaDevices.addEventListener('devicechange', look)
+    return () => navigator.mediaDevices.removeEventListener('devicechange', look)
+  }, [canUseCamera, feeds.length])
 
-  function start(source: SourceChoice) {
-    if (!room) return
-    const camId = choice === 'new' ? nextCameraId(room.id) : choice
-    if (choice === 'new') saveCamera(camId, { roomId: room.id, name: `Camera ${cameraNumber(camId)}`, zones: defaultZones(room), updatedAt: Date.now() })
-    addFeed({ camId, source })
-    setCam('new')
-    toast.success(`${camId} is starting`, { description: 'Mark the room and its lights on the picture, then leave it running.' })
+  async function start(source: SourceChoice) {
+    if (!room || busy) return
+    setBusy(true)
+    try {
+      const camId = choice === 'new' ? await createCamera(room) : choice
+      addFeed({ camId, source })
+      setCam('new')
+      toast.success(`${camId} is starting`, { description: 'Mark the room and its lights on the picture, or let the camera find them, then leave it running.' })
+    } finally {
+      setBusy(false)
+    }
   }
+  const startDevice = () => {
+    const picked = named.find((c) => c.deviceId === deviceId)
+    void start({ kind: 'device', deviceId: picked?.deviceId ?? '', label: picked?.label ?? '' })
+  }
+  const unnamed = devices.length === 0 || devices.every((d) => !d.deviceId || /^Camera \d+$/.test(d.label))
 
   if (!room) return null
   return (
@@ -150,69 +194,90 @@ function AddCamera({ rooms, initial }: { rooms: Room[]; initial: { roomId: strin
               </SelectContent>
             </Select>
           </div>
+          <CoverageChips room={room} cameras={Object.values(cameras)} label={`What the cameras of ${room.id} watch now`} />
         </div>
         <div className="space-y-2">
-          <Label>Source</Label>
-          {isPhone && (
-            <Button className="h-11 w-full" onClick={() => start({ kind: 'rear' })}>
+          <Label htmlFor="add-device">Source</Label>
+          {!canUseCamera && <p className="text-sm text-warn">This browser cannot open cameras on this page: cameras need https or localhost. A CCTV stream or a video file still works.</p>}
+          {isPhone && canUseCamera && (
+            <Button className="h-11 w-full" disabled={busy} onClick={() => void start({ kind: 'rear' })}>
               <Smartphone aria-hidden /> Use this phone's rear camera
             </Button>
           )}
-          <div className="flex gap-2">
-            <Select value={deviceId} onValueChange={setDeviceId}>
-              <SelectTrigger className="min-w-0 flex-1" aria-label="Camera on this device">
-                <SelectValue placeholder="No camera found" />
-              </SelectTrigger>
-              <SelectContent>
-                {devices.map((c) => (
-                  <SelectItem key={c.deviceId} value={c.deviceId || 'default'}>
-                    {c.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button disabled={!deviceId} onClick={() => start({ kind: 'device', deviceId, label: devices.find((c) => c.deviceId === deviceId)?.label ?? '' })}>
-              <Play aria-hidden /> Start
-            </Button>
-          </div>
-          {devices.length > 0 && devices[0].label.startsWith('Camera') && (
-            <Button
-              variant="link"
-              size="sm"
-              className="h-auto p-0"
-              onClick={() =>
-                askCameraPermission()
-                  .then(listCameras)
-                  .then((c) => {
-                    setDevices(c)
-                    setDeviceId(c[0]?.deviceId ?? '')
-                  })
-                  .catch(() => toast.error('Camera permission was refused. Allow it in the address bar.'))
-              }
-            >
-              Show camera names
-            </Button>
-          )}
-          {!isPhone && (
-            <Button variant="secondary" size="sm" className="w-full" onClick={() => start({ kind: 'rear' })}>
-              <Camera aria-hidden /> Back camera (tablets and phones)
-            </Button>
+          {canUseCamera && (
+            <>
+              <div className="flex gap-2">
+                <Select value={deviceId} onValueChange={setDeviceId}>
+                  <SelectTrigger id="add-device" className="min-w-0 flex-1" aria-label="Camera on this device">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT}>Default camera</SelectItem>
+                    {named.map((c) => (
+                      <SelectItem key={c.deviceId} value={c.deviceId}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button disabled={busy} onClick={startDevice}>
+                  {busy ? <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden /> : <Play aria-hidden />} Start
+                </Button>
+              </div>
+              {unnamed && (
+                <p className="text-xs text-muted-foreground">
+                  Start asks for the camera and uses the default one.{' '}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs"
+                    onClick={() =>
+                      askCameraPermission()
+                        .then(listCameras)
+                        .then(setDevices)
+                        .catch(() => toast.error('Camera permission was refused. Allow it in the address bar.'))
+                    }
+                  >
+                    Allow the camera to see its name
+                  </Button>
+                </p>
+              )}
+              {!isPhone && (
+                <Button variant="secondary" size="sm" className="w-full" disabled={busy} onClick={() => void start({ kind: 'rear' })}>
+                  <Camera aria-hidden /> Back camera (tablets and phones)
+                </Button>
+              )}
+            </>
           )}
           <form
-            className="flex gap-2"
+            className="space-y-2"
             onSubmit={(e) => {
               e.preventDefault()
-              if (/^https?:\/\//.test(whepUrl)) start({ kind: 'whep', url: whepUrl })
+              if (/^https?:\/\//.test(whepUrl) && !blocked) void start({ kind: 'whep', url: whepUrl })
             }}
           >
-            <Input value={whepUrl} onChange={(e) => setWhepUrl(e.target.value)} placeholder="CCTV: http://host:8889/lh1/whep" aria-label="CCTV WHEP stream address" />
-            <Button type="submit" variant="outline" disabled={!/^https?:\/\//.test(whepUrl)}>
-              Open
-            </Button>
+            <div className="flex gap-2">
+              <Input
+                value={whepUrl}
+                onChange={(e) => setWhepUrl(e.target.value.trim())}
+                placeholder="CCTV: https://host:8889/lh1/whep"
+                aria-label="CCTV WHEP stream address"
+                aria-invalid={blocked || undefined}
+                aria-describedby={blocked ? 'whep-help' : undefined}
+              />
+              <Button type="submit" variant="outline" disabled={!/^https?:\/\//.test(whepUrl) || blocked || busy}>
+                Open
+              </Button>
+            </div>
+            {blocked && (
+              <p id="whep-help" role="alert" className="flex gap-2 rounded-md bg-warn/10 p-2 text-xs text-warn">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden /> {MIXED_CONTENT}
+              </p>
+            )}
           </form>
-          <Label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed p-2 text-sm font-normal">
+          <Label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed p-2 text-sm font-normal focus-within:ring-2 focus-within:ring-highlight">
             <FileVideo className="size-4" aria-hidden /> Play a recorded video file (this visit only)
-            <input type="file" accept="video/*" className="sr-only" onChange={(e) => e.target.files?.[0] && start({ kind: 'file', file: e.target.files[0] })} />
+            <input type="file" accept="video/*" className="sr-only" onChange={(e) => e.target.files?.[0] && void start({ kind: 'file', file: e.target.files[0] })} />
           </Label>
         </div>
       </CardContent>
@@ -255,6 +320,9 @@ function AllCameras({ rooms, active }: { rooms: Room[]; active: boolean }) {
                         <PhoneDialog roomId={room.id} />
                       </span>
                     </div>
+                    <div className="mt-2">
+                      <CoverageChips room={room} cameras={ids.flatMap((id) => (cameras[id] ? [cameras[id]] : []))} label={`What the cameras of ${room.id} watch`} />
+                    </div>
                     {ids.length === 0 ? (
                       <p className="mt-2 text-sm text-muted-foreground">No camera yet.</p>
                     ) : (
@@ -272,6 +340,11 @@ function AllCameras({ rooms, active }: { rooms: Room[]; active: boolean }) {
                                 {live ? `Live · ${r!.headcount} people · ${Object.values(r!.zones).filter(Boolean).length} zones on` : r ? `Silent for ${Math.round(age / 1000)} s` : 'Not running anywhere'}
                               </span>
                               {running.has(id) && <Badge variant="secondary">This device</Badge>}
+                              {cameras[id] && (
+                                <span className="basis-full pl-6">
+                                  <CoverageChips room={room} cameras={[cameras[id]]} label={`What ${id} watches`} />
+                                </span>
+                              )}
                               <span className="ml-auto flex gap-1">
                                 {!running.has(id) && <PhoneDialog roomId={room.id} camId={id} />}
                                 {cameras[id] && !live && (
@@ -312,6 +385,8 @@ export default function CameraStation({ visible }: { visible: boolean }) {
   const initial = fromPath(pathname)
 
   useEffect(() => void syncCameras(), [])
+  // The server keeps each camera's latest reading, so the twin runs on when no browser has it open.
+  useEffect(() => (online() ? every(10_000, () => void postReadings()) : undefined), [])
   // The privacy log refreshes only while the page is shown.
   useEffect(() => {
     if (!visible) return
@@ -324,7 +399,8 @@ export default function CameraStation({ visible }: { visible: boolean }) {
 
   // One tree whether shown or not, so hiding the page never restarts a camera.
   return (
-    <main className={visible ? 'mx-auto max-w-7xl space-y-4 p-4' : 'hidden'} aria-hidden={!visible}>
+    // Hidden, the page stays painted at 1 px: iOS can stop a display:none camera video.
+    <main className={visible ? 'mx-auto max-w-7xl space-y-4 p-4' : OFFSCREEN} aria-hidden={!visible} inert={!visible}>
       {visible && (
         <header className="flex flex-wrap items-center gap-3">
           <Link to="/" className="font-heading text-xl font-semibold text-highlight">

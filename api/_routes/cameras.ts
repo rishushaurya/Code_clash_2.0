@@ -1,5 +1,6 @@
 // GET /api/cameras  (Bearer token)  Every camera of the workspace with its zones and calibration.
-// PUT /api/cameras  (Bearer token)  { id, config | null }  Save or remove one camera.
+// PUT /api/cameras  (Bearer token)  { id, config | null, base? }  Save or remove one camera. `base` is the updatedAt of
+//   the copy being replaced; without it the save creates the camera, and an id that already exists answers 409.
 // Kept apart from the site, so a phone calibrating a camera never overwrites setup edits made elsewhere.
 
 import { z } from 'zod'
@@ -39,12 +40,14 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   const id = requireWorkspace(req)
   if (id instanceof Response) return id
-  const body = await readBody(req, z.object({ id: CameraId, config: CameraConfigSchema.nullable() }), 20_000)
+  const body = await readBody(req, z.object({ id: CameraId, config: CameraConfigSchema.nullable(), base: z.number().optional() }), 20_000)
   if (body instanceof Response) return body
   const doc = await readDoc(id, 'cameras')
   if (doc === 'unavailable') return json({ error: 'Server storage is not configured or unavailable' }, 503)
   // seniordev: read-modify-write per camera; two cameras saved in the same instant can lose one save, which the next save repeats.
   const cameras = { ...((doc?.value as { cameras?: Record<string, unknown> } | undefined)?.cameras ?? {}) }
+  // Two devices creating the same number would overwrite each other's zones: the second takes the next number.
+  if (body.config && body.base === undefined && cameras[body.id]) return json({ error: 'This camera number is taken; take the next one' }, 409)
   if (body.config) cameras[body.id] = body.config
   else delete cameras[body.id]
   if (Object.keys(cameras).length > 200) return json({ error: 'At most 200 cameras per workspace' }, 400)
