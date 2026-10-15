@@ -1,6 +1,6 @@
 // One room: live state, devices, indoor CO2, switch-off and staff-report controls, and the "Add camera" QR code.
 
-import { ArrowLeft, Camera, Eye, Lightbulb, LightbulbOff, Power, Wind } from 'lucide-react'
+import { Camera, Eye, Lightbulb, LightbulbOff, Power, Wind } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { joinLink } from '@/shared/workspace'
 import { Line, LineChart, ReferenceLine, ResponsiveContainer, YAxis } from 'recharts'
@@ -14,8 +14,11 @@ import type { DeviceType } from '@/shared/types'
 import { costPerHour, formatMoney } from '@/twin/energy'
 import { useTwin } from '@/twin/store'
 import { EmptyState, ErrorState, PanelSkeleton } from '../components/states'
-import { SourceBadges, StatusBadge } from '../components/status'
+import { RoomStatusBadge, SourceBadges } from '../components/status'
 import { Surveyor } from '../components/Surveyor'
+import { useEffect } from 'react'
+import { syncCameras, useCameras } from '@/cv/cameras'
+import { coverage } from '@/cv/coverage'
 
 const NAMES: Record<DeviceType, string> = { light: 'Lights', fan: 'Fans', ac: 'ACs', projector: 'Projectors', pc: 'PCs' }
 
@@ -28,6 +31,9 @@ export default function RoomDetail() {
   const switchOff = useTwin((st) => st.switchOff)
   const reportDevices = useTwin((st) => st.reportDevices)
   const readings = useTwin((st) => st.readings)
+  const emptyDelayS = useSite((st) => st.site.emptyDelayS)
+  const saved = useCameras((c) => c.cameras)
+  useEffect(() => void syncCameras(), [])
 
   if (!room) return <ErrorState message={`There is no room ${id} in this site.`} />
   if (!s) return <PanelSkeleton rows={6} />
@@ -49,15 +55,10 @@ export default function RoomDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/">
-            <ArrowLeft aria-hidden /> Twin
-          </Link>
-        </Button>
-        <h1 className="font-mono text-2xl font-semibold">{room.id}</h1>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="font-mono text-2xl font-semibold md:text-3xl">{room.id}</h1>
         <span className="text-muted-foreground">{room.name}</span>
-        <StatusBadge status={s.status} />
+        <RoomStatusBadge state={s} emptyDelayS={emptyDelayS} />
         <SourceBadges sources={s.sources} />
       </div>
 
@@ -195,6 +196,14 @@ export default function RoomDetail() {
               <QRCodeSVG value={cameraUrl} size={170} level="L" aria-label={`QR code that adds a phone camera to ${room.id}`} />
             </div>
             <p className="text-center text-xs text-muted-foreground">Scan with a phone to add it as a camera. The code signs the phone in to this workspace, so keep it off public walls.</p>
+            {room.devices.length > 0 && (
+              <p className="w-full border-t pt-2 text-xs">
+                <span className="text-muted-foreground">Camera coverage: </span>
+                {Object.values(saved).some((c) => c.roomId === room.id)
+                  ? coverage(room, Object.values(saved)).map((c) => `${c.watched} of ${c.total} ${NAMES[c.type].toLowerCase()}`).join(', ')
+                  : 'no camera has marked this room yet'}
+              </p>
+            )}
             {cameras.length > 0 && (
               <ul className="w-full space-y-1 border-t pt-2 text-xs" aria-label="Cameras that reported">
                 {cameras.map((c) => {

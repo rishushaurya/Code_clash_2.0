@@ -1,8 +1,9 @@
 // One status vocabulary for the whole app: colour plus icon plus text (DESIGN_SYSTEM section 3).
 
-import { CircleDashed, FlaskConical, Gauge, Hand, Moon, ScanEye, Users, Zap, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Circle, CircleAlert, CircleDashed, FlaskConical, Gauge, Hand, Hourglass, Moon, ScanEye, Users, Zap, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { RoomState, RoomStatus } from '@/shared/types'
+import { emptyingSecondsLeft } from '../live'
 
 export const STATUS: Record<RoomStatus, { label: string; icon: LucideIcon; text: string; bg: string; fill: string }> = {
   occupied: { label: 'Occupied', icon: Users, text: 'text-occupied', bg: 'bg-occupied/15', fill: 'var(--status-occupied)' },
@@ -17,6 +18,18 @@ export function StatusBadge({ status, className }: { status: RoomStatus; classNa
     <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium', s.text, s.bg, className)}>
       <s.icon className="size-3.5" aria-hidden />
       {s.label}
+    </span>
+  )
+}
+
+/** A room's live status; "Emptying (n s)" while nobody is seen but the empty delay has not passed (T1) */
+export function RoomStatusBadge({ state, emptyDelayS, className }: { state: RoomState | undefined; emptyDelayS: number; className?: string }) {
+  const left = state ? emptyingSecondsLeft(state, emptyDelayS, state.updatedAt) : null
+  if (left === null) return <StatusBadge status={state?.status ?? 'unknown'} className={className} />
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-full bg-warn/15 px-2 py-0.5 text-xs font-medium text-warn', className)} title="Nobody seen; the room counts as empty once the empty delay has passed">
+      <Hourglass className="size-3.5" aria-hidden />
+      Emptying ({left} s)
     </span>
   )
 }
@@ -53,6 +66,25 @@ export function SourceBadges({ sources, className }: { sources: RoomState['sourc
           </span>
         )
       })}
+    </span>
+  )
+}
+
+export type Light = 'ok' | 'warn' | 'off' | 'unknown'
+const LIGHT: Record<Light, { icon: LucideIcon; text: string }> = {
+  ok: { icon: CheckCircle2, text: 'text-occupied' },
+  warn: { icon: CircleAlert, text: 'text-warn' },
+  off: { icon: Circle, text: 'text-muted-foreground' },
+  unknown: { icon: CircleDashed, text: 'text-muted-foreground' },
+}
+
+/** A connection's state: icon and words in the status colour, never colour alone */
+export function StatusLight({ light, label, className }: { light: Light; label: string; className?: string }) {
+  const l = LIGHT[light]
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', l.text, className)}>
+      <l.icon className="size-4 shrink-0" aria-hidden />
+      {label}
     </span>
   )
 }

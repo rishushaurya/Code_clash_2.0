@@ -1,32 +1,47 @@
-// App shell for the twin screens: navigation, connection, relay, workspace menu, theme.
-// Mounting it starts the twin in this tab.
+// App shell for the twin screens: sidebar (icons only when collapsed), a top bar with the live status, alerts,
+// search and the Assistant, a tab bar on phones, and the command palette. Mounting it starts the twin in this tab.
 
-import { Cable, Camera, Copy, FileText, FlaskConical, LayoutDashboard, LogOut, Moon, QrCode, Radio, Settings2, Smartphone, Sun, Users, Wifi, WifiOff } from 'lucide-react'
+import { Bell, Bot, ChevronsUpDown, CircleDashed, Copy, LogOut, Menu, Moon, QrCode, Radio, Search, Smartphone, Sun, UsersRound, Wifi, WifiOff } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
-import { Badge } from '@/components/ui/badge'
+import { Fragment, useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router'
+import { toast } from 'sonner'
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { connectRelay, useRelay } from '@/relay/webSerial'
 import { useSite } from '@/shared/site'
 import { joinLink, online, publicLink, SESSION, signOut } from '@/shared/workspace'
-import { toast } from 'sonner'
 import { useRealtime } from '@/twin/realtime'
 import { useTwin } from '@/twin/store'
+import { AssistantPanel } from '@/ui/assistant'
+import { useOpenAlertCount } from './alerts'
+import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/states'
-
-const NAV = [
-  { to: '/', label: 'Live twin', icon: LayoutDashboard },
-  { to: '/lab', label: 'Scenario Lab', icon: FlaskConical },
-  { to: '/reports', label: 'Reports', icon: FileText },
-  { to: '/camera', label: 'Cameras', icon: Camera },
-  { to: '/live', label: 'Public view', icon: Smartphone },
-  { to: '/setup', label: 'Setup', icon: Settings2 },
-]
+import { ago, freshness, lastInputAt } from './live'
+import { NAV, pageOf } from './nav'
 
 function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
@@ -41,6 +56,16 @@ function useTheme() {
   return [dark, setDark] as const
 }
 
+/** Re-render every few seconds so "12 s ago" stays true */
+function useNow(everyMs = 5000) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs)
+    return () => clearInterval(t)
+  }, [everyMs])
+  return now
+}
+
 function IconTip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <Tooltip>
@@ -50,19 +75,35 @@ function IconTip({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-function WorkspaceMenu() {
+/** Time of the newest camera or sensor reading, and whether the live channel is up. Text and icon, never colour alone. */
+function LiveStatus() {
+  const now = useNow()
+  const readings = useTwin((s) => s.readings)
+  const sensors = useTwin((s) => s.sensors)
+  const realtime = useRealtime((s) => s.status)
+  const autoOff = useSite((s) => s.site.autoOff)
+  const f = freshness(lastInputAt(Object.values(readings), Object.values(sensors)), now)
+  const channel = realtime === 'online' ? 'Connected to phones, cameras and sensors over the internet.' : realtime === 'local' ? 'Local only: cameras in tabs of this browser.' : `Live channel ${realtime}.`
+  const Icon = realtime === 'offline' ? WifiOff : f.kind === 'none' ? CircleDashed : realtime === 'local' ? Radio : Wifi
+  const text = f.kind === 'none' ? 'No live input' : f.kind === 'live' ? `Live, ${ago(f.ageS)}` : f.kind === 'recent' ? `Last reading ${ago(f.ageS)}` : `Stale, ${ago(f.ageS)}`
+  const tone = realtime === 'offline' || f.kind === 'stale' ? 'text-waste' : f.kind === 'live' ? 'text-occupied' : f.kind === 'recent' ? 'text-warn' : 'text-muted-foreground'
+  return (
+    <IconTip label={`${channel}${autoOff.enabled ? ` Automatic switch-off after ${autoOff.minutes} min is on.` : ''}`}>
+      <span role="status" tabIndex={0} className={cn('inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium', tone)}>
+        <Icon className="size-3.5" aria-hidden />
+        <span className="num hidden sm:inline">{text}</span>
+        <span className="sr-only sm:hidden">{text}</span>
+      </span>
+    </IconTip>
+  )
+}
+
+function InviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const live = publicLink()
   const invite = joinLink('/')
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success('Link copied')).catch(() => toast.error('Clipboard is blocked'))
   return (
-    <Dialog>
-      <IconTip label={`Workspace ${SESSION?.name}: invite a device, public view, sign out`}>
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="sm" className="max-w-40 gap-1.5" aria-label="Workspace menu">
-            <Users aria-hidden /> <span className="hidden truncate lg:inline">{SESSION?.name}</span>
-          </Button>
-        </DialogTrigger>
-      </IconTip>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{SESSION?.name}</DialogTitle>
@@ -96,95 +137,286 @@ function WorkspaceMenu() {
             </div>
           )}
         </div>
-        <Button variant="ghost" className="text-waste" onClick={signOut}>
-          <LogOut aria-hidden /> Sign out of this workspace
-        </Button>
       </DialogContent>
     </Dialog>
   )
 }
 
+function WorkspaceMenu({ onInvite }: { onInvite: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="max-w-44 gap-1.5" aria-label={`Workspace ${SESSION?.name ?? ''}`}>
+          <UsersRound aria-hidden /> <span className="hidden truncate xl:inline">{SESSION?.name}</span>
+          <ChevronsUpDown className="hidden opacity-60 xl:inline" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>
+          <span className="block truncate">{SESSION?.name}</span>
+          <span className="block text-xs font-normal text-muted-foreground">{online() ? 'Online workspace' : 'This browser only'}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onInvite}>
+          <QrCode aria-hidden /> Invite a device, public view code
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/live">
+            <Smartphone aria-hidden /> Open the public view
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/settings/team">
+            <UsersRound aria-hidden /> Team and access
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={signOut}>
+          <LogOut aria-hidden /> Sign out of this workspace
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function AppSidebar() {
+  const { pathname } = useLocation()
+  const site = useSite((s) => s.site)
+  const alerts = useOpenAlertCount()
+  const { setOpenMobile } = useSidebar()
+  const current = pageOf(pathname)
+  return (
+    <Sidebar collapsible="icon" className="no-print">
+      <SidebarHeader>
+        <Link to="/" className="flex h-10 items-center gap-2 overflow-hidden rounded-md px-1.5" onClick={() => setOpenMobile(false)}>
+          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-highlight font-heading text-sm font-semibold text-[var(--on-highlight)]" aria-hidden>
+            P
+          </span>
+          <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
+            <span className="font-heading text-lg font-semibold text-highlight">Pratibimb</span>
+            <span className="truncate text-xs text-muted-foreground">{site.buildingName || 'New site'}</span>
+          </span>
+        </Link>
+      </SidebarHeader>
+      <SidebarContent>
+        {NAV.map((g) => (
+          <SidebarGroup key={g.group}>
+            <SidebarGroupLabel>{g.group}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {g.pages.map((p) => {
+                  const active = current?.to === p.to
+                  return (
+                    <SidebarMenuItem key={p.to}>
+                      <SidebarMenuButton asChild isActive={active} tooltip={p.label} className="data-active:text-highlight">
+                        <NavLink to={p.to} end onClick={() => setOpenMobile(false)} aria-current={active ? 'page' : undefined}>
+                          <p.icon aria-hidden />
+                          <span>{p.label}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                      {p.to === '/alerts' && alerts > 0 && (
+                        <SidebarMenuBadge className="num bg-waste/15 text-waste" aria-label={`${alerts} open alerts`}>
+                          {alerts}
+                        </SidebarMenuBadge>
+                      )}
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip="Public view">
+              <Link to="/live">
+                <Smartphone aria-hidden />
+                <span>Public view</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  )
+}
+
+/** Building > page > detail; only the last part on phones */
+function Crumbs() {
+  const { pathname } = useLocation()
+  const building = useSite((s) => s.site.buildingName) || 'New site'
+  const page = pageOf(pathname)
+  const roomId = pathname.startsWith('/room/') ? decodeURIComponent(pathname.slice(6)) : null
+  const roomName = useSite((s) => (roomId ? s.site.rooms.find((r) => r.id === roomId)?.name : undefined))
+  const group = NAV.find((g) => g.pages.includes(page!))?.group
+  const parts: { label: string; to?: string }[] = [{ label: building, to: '/' }]
+  if (group === 'Settings') parts.push({ label: 'Settings' })
+  if (pathname === '/connections/doctor') parts.push({ label: 'Connections', to: '/connections' })
+  if (page && page.to !== '/') parts.push({ label: page.label, to: roomId ? page.to : undefined })
+  if (roomId) parts.push({ label: roomName ? `${roomId}, ${roomName}` : roomId })
+  if (parts.length === 1) parts[0] = { label: building }
+  return (
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList className="flex-nowrap">
+        {parts.map((p, i) => {
+          const last = i === parts.length - 1
+          return (
+            <Fragment key={`${p.label}-${i}`}>
+              <BreadcrumbItem className={cn('min-w-0', !last && 'hidden md:inline-flex')}>
+                {last ? (
+                  <BreadcrumbPage className="truncate font-medium">{p.label}</BreadcrumbPage>
+                ) : p.to ? (
+                  <BreadcrumbLink asChild className="truncate">
+                    <Link to={p.to}>{p.label}</Link>
+                  </BreadcrumbLink>
+                ) : (
+                  <span className="truncate">{p.label}</span>
+                )}
+              </BreadcrumbItem>
+              {!last && <BreadcrumbSeparator className="hidden md:inline-flex" />}
+            </Fragment>
+          )
+        })}
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+const TABS = ['/', '/rooms', '/alerts', '/camera']
+
+/** Phones: the four most used pages plus More, which opens the full menu */
+function TabBar() {
+  const { pathname } = useLocation()
+  const { setOpenMobile } = useSidebar()
+  const alerts = useOpenAlertCount()
+  const current = pageOf(pathname)
+  const pages = NAV.flatMap((g) => g.pages).filter((p) => TABS.includes(p.to))
+  return (
+    <nav aria-label="Main" className="no-print fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      {pages.map((p) => {
+        const active = current?.to === p.to
+        return (
+          <Link
+            key={p.to}
+            to={p.to}
+            aria-current={active ? 'page' : undefined}
+            className={cn('relative flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium', active ? 'text-highlight' : 'text-muted-foreground')}
+          >
+            <p.icon className="size-5" aria-hidden />
+            {p.label}
+            {p.to === '/alerts' && alerts > 0 && (
+              <span className="num absolute top-1.5 left-1/2 ml-1.5 rounded-full bg-waste px-1.5 text-[10px] leading-4 text-white" aria-label={`${alerts} open`}>
+                {alerts}
+              </span>
+            )}
+          </Link>
+        )
+      })}
+      <button type="button" onClick={() => setOpenMobile(true)} className="flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-muted-foreground">
+        <Menu className="size-5" aria-hidden />
+        More
+      </button>
+    </nav>
+  )
+}
+
+function readSidebarDefault() {
+  const saved = document.cookie.match(/sidebar_state=(true|false)/)?.[1]
+  return saved ? saved === 'true' : window.innerWidth >= 1280
+}
+
 export function Layout() {
   const start = useTwin((s) => s.start)
-  const site = useSite((s) => s.site)
-  const realtime = useRealtime((s) => s.status)
-  const relay = useRelay((s) => s.status)
+  const alerts = useOpenAlertCount()
   const [dark, setDark] = useTheme()
+  const [assistant, setAssistant] = useState(false)
+  const [palette, setPalette] = useState(false)
+  const [invite, setInvite] = useState(false)
+  const [params] = useSearchParams()
+  const { pathname } = useLocation()
 
   useEffect(start, [start])
 
+  // The 3D view in full screen (lobby display): no chrome at all.
+  if (pathname === '/building' && params.get('fs') === '1')
+    return (
+      <ErrorBoundary label="the 3D view">
+        <Outlet />
+      </ErrorBoundary>
+    )
+
   return (
-    <div className="min-h-dvh">
-      <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur no-print">
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
-          <NavLink to="/" className="flex items-baseline gap-2">
-            <span className="font-heading text-xl font-semibold text-highlight">Pratibimb</span>
-            <span className="hidden text-sm text-muted-foreground sm:inline">{site.buildingName || 'New site'}</span>
-          </NavLink>
-          <nav aria-label="Main" className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto">
-            {NAV.map(({ to, label, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === '/'}
-                className={({ isActive }) =>
-                  cn('flex shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-sm hover:bg-accent', isActive && 'bg-accent font-medium text-highlight')
-                }
-              >
-                <Icon className="size-4" aria-hidden /> {label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-1">
-            {site.autoOff.enabled && (
-              <IconTip label={`Rooms left empty with power on are switched off automatically after ${site.autoOff.minutes} minutes. Change it in Setup.`}>
-                <Badge variant="outline" className="border-occupied text-occupied">
-                  Auto-off
-                </Badge>
-              </IconTip>
-            )}
-            {site.emptyDelayS < 60 && (
-              <IconTip label={`Rooms count as empty after ${site.emptyDelayS} seconds. Change it in Setup.`}>
-                <Badge variant="outline" className="border-warn text-warn">
-                  Fast empty delay
-                </Badge>
-              </IconTip>
-            )}
-            <IconTip label={realtime === 'online' ? 'Connected to phones and cameras over the internet' : realtime === 'local' ? 'This browser only: cameras in tabs of this browser' : `Realtime ${realtime}`}>
-              <span className={cn('flex size-9 items-center justify-center', realtime === 'offline' ? 'text-waste' : realtime === 'online' ? 'text-occupied' : 'text-muted-foreground')}>
-                {realtime === 'offline' ? <WifiOff className="size-4" aria-label="Realtime offline" /> : realtime === 'local' ? <Radio className="size-4" aria-label="Local realtime" /> : <Wifi className="size-4" aria-label="Realtime online" />}
-              </span>
-            </IconTip>
-            <IconTip label={relay === 'connected' ? 'Relay board connected' : relay === 'unsupported' ? 'This browser has no Web Serial; use Chrome or Edge for a USB relay' : 'Connect the relay board over USB'}>
-              <Button variant="ghost" size="icon" aria-label="Connect relay" disabled={relay !== 'disconnected'} onClick={() => connectRelay().catch(() => undefined)} className={relay === 'connected' ? 'text-occupied' : undefined}>
-                <Cable aria-hidden />
-              </Button>
-            </IconTip>
-            <WorkspaceMenu />
-            <IconTip label="Public view and its QR code">
-              <Button variant="ghost" size="icon" asChild aria-label="Open public view">
-                <NavLink to="/live">
-                  <QrCode aria-hidden />
-                </NavLink>
-              </Button>
-            </IconTip>
-            <IconTip label={dark ? 'Switch to light theme' : 'Switch to dark theme'}>
-              <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} aria-label="Toggle theme">
-                {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
-              </Button>
-            </IconTip>
+    <SidebarProvider defaultOpen={readSidebarDefault()}>
+      <a href="#main" className="sr-only z-50 rounded-md bg-background px-3 py-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
+        Skip to content
+      </a>
+      <AppSidebar />
+      <SidebarInset className="min-w-0">
+        <header className="no-print sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/90 px-3 backdrop-blur md:px-4">
+          <SidebarTrigger className="hidden md:inline-flex" aria-label="Collapse or expand the menu" />
+          <div className="min-w-0 flex-1">
+            <Crumbs />
           </div>
-        </div>
-      </header>
-      <main id="main" className="mx-auto max-w-[1600px] p-4">
-        <ErrorBoundary label="this page">
-          <Outlet />
-        </ErrorBoundary>
-      </main>
-      <footer className="no-print mx-auto max-w-[1600px] px-4 pb-6 text-xs text-muted-foreground">
-        Pratibimb by Team Barfi · Weather and air quality by Open-Meteo (CC BY 4.0) · Video never leaves the device
-      </footer>
-      <Toaster theme={dark ? 'dark' : 'light'} position="bottom-right" />
-    </div>
+          <LiveStatus />
+          <IconTip label="Search rooms, pages and actions (Ctrl+K)">
+            <Button variant="outline" size="sm" className="gap-2 text-muted-foreground" onClick={() => setPalette(true)} aria-label="Search (Ctrl+K)">
+              <Search aria-hidden />
+              <kbd className="hidden rounded border bg-muted px-1 font-mono text-[10px] lg:inline">Ctrl K</kbd>
+            </Button>
+          </IconTip>
+          <IconTip label={alerts ? `${alerts} open alerts` : 'No open alerts'}>
+            <Button variant="ghost" size="icon" asChild className="relative" aria-label={alerts ? `Alerts, ${alerts} open` : 'Alerts, none open'}>
+              <Link to="/alerts">
+                <Bell aria-hidden />
+                {alerts > 0 && (
+                  <span className="num absolute top-0.5 right-0.5 min-w-4 rounded-full bg-waste px-1 text-center text-[10px] leading-4 text-white" aria-hidden>
+                    {alerts}
+                  </span>
+                )}
+              </Link>
+            </Button>
+          </IconTip>
+          <Button size="sm" onClick={() => setAssistant(true)} className="gap-1.5" aria-label="Open the Assistant">
+            <Bot aria-hidden /> <span className="hidden lg:inline">Assistant</span>
+          </Button>
+          <WorkspaceMenu onInvite={() => setInvite(true)} />
+          <IconTip label={dark ? 'Switch to light theme' : 'Switch to dark theme'}>
+            <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} className="hidden sm:inline-flex">
+              {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
+            </Button>
+          </IconTip>
+        </header>
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] flex-1 p-4 pb-24 outline-none md:p-6 md:pb-8">
+          <ErrorBoundary label="this page">
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+        <footer className="no-print mx-auto hidden w-full max-w-[1600px] px-6 pb-6 text-xs text-muted-foreground md:block">
+          Pratibimb by Team Barfi · Weather and air quality by Open-Meteo (CC BY 4.0) · Video never leaves the device
+        </footer>
+      </SidebarInset>
+      <TabBar />
+      <Sheet open={assistant} onOpenChange={setAssistant}>
+        <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <Bot className="size-4 text-highlight" aria-hidden /> Assistant
+            </SheetTitle>
+            <SheetDescription>Answers from this building's live data. It never changes anything without your approval.</SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <ErrorBoundary label="the Assistant">
+              <AssistantPanel />
+            </ErrorBoundary>
+          </div>
+        </SheetContent>
+      </Sheet>
+      <CommandPalette open={palette} onOpenChange={setPalette} onAssistant={() => setAssistant(true)} onTheme={() => setDark(!dark)} onInvite={() => setInvite(true)} />
+      <InviteDialog open={invite} onOpenChange={setInvite} />
+      <Toaster theme={dark ? 'dark' : 'light'} position="bottom-right" mobileOffset={{ bottom: 72 }} />
+    </SidebarProvider>
   )
 }
