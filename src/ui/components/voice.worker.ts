@@ -4,8 +4,9 @@
 
 import { env, KokoroTTS } from 'kokoro-js'
 
-// The ONNX runtime is served from this site (scripts/copy-mediapipe.mjs), not a CDN.
-env.wasmPaths = '/ort/'
+// The ONNX runtime is served from this site (scripts/copy-mediapipe.mjs), not a CDN. Absolute, so Vite's dev
+// server does not treat the runtime's own dynamic import as a module of the app.
+env.wasmPaths = `${self.location.origin}/ort/`
 
 const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 type Voice = keyof KokoroTTS['voices']
