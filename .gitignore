@@ -16,3 +16,12 @@ dist-ssr/
 public/mediapipe/
 edge/.venv/
 __pycache__/
+
+# AI tooling (internal, not project code)
+.claude/
+CLAUDE.md
+.agents/
+.gemini/
+
+# Duplicate of docs/RESEARCH_MASTER_PLAN.md
+Pratibimb — Code Clash 2.0 Research & Master Plan.md
