@@ -8,6 +8,7 @@ export type RoomStatus = 'occupied' | 'idle' | 'waste' | 'unknown'
 export type RoomType = 'lecture_hall' | 'classroom' | 'lab' | 'office' | 'meeting' | 'other'
 export type CameraSourceKind = 'webcam' | 'phone' | 'usb' | 'cctv' | 'video_file' | 'python_edge'
 export type AlertLanguage = 'en' | 'hi' | 'kn'
+export type FurnitureKind = 'desk' | 'chair' | 'table' | 'bench' | 'board' | 'sofa' | 'shelf' | 'plant' | 'podium' | 'bed'
 
 export interface Device {
   id: string
@@ -37,6 +38,10 @@ export interface Room {
   devices: Device[]
   /** Floor to ceiling, metres; 3 when missing */
   heightM?: number
+  /** How the room looks in 3D: hex colours; the 3D view picks calm defaults when missing */
+  style?: { wall?: string; floor?: string; accent?: string }
+  /** Furniture drawn in 3D, metres from the room's corner, turned by `rot` radians; arranged from the room type when missing */
+  furniture?: { kind: FurnitureKind; x: number; z: number; rot: number }[]
   /** Several cameras in one room: 'max' if views overlap (default), 'sum' if they split the room */
   cameraMerge?: 'max' | 'sum'
   /** A relay on this machine's USB port switches this room's lights */
@@ -71,6 +76,8 @@ export interface Site {
   rooms: Room[]
   /** Telegram chat that receives this workspace's alerts and weekly digest (the bot answers /chatid with it) */
   telegramChatId?: string
+  /** Metres per floor-plan unit, fixed once the building is edited in 3D, so resizing one room never rescales the others */
+  planScaleM?: number
   /** The building's real outline from OpenStreetMap, metres around its centre, so every device draws the same shell */
   outline?: { osmId: number; name: string | null; poly: [number, number][]; levels: number | null; heightM: number | null }
 }

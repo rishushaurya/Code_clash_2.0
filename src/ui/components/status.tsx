@@ -3,7 +3,7 @@
 import { CheckCircle2, Circle, CircleAlert, CircleDashed, FlaskConical, Gauge, Hand, Hourglass, Moon, ScanEye, Users, Zap, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { RoomState, RoomStatus } from '@/shared/types'
-import { emptyingSecondsLeft } from '../live'
+import { emptyingSeconds } from '@/twin/compute'
 
 export const STATUS: Record<RoomStatus, { label: string; icon: LucideIcon; text: string; bg: string; fill: string }> = {
   occupied: { label: 'Occupied', icon: Users, text: 'text-occupied', bg: 'bg-occupied/15', fill: 'var(--status-occupied)' },
@@ -24,7 +24,7 @@ export function StatusBadge({ status, className }: { status: RoomStatus; classNa
 
 /** A room's live status; "Emptying (n s)" while nobody is seen but the empty delay has not passed (T1) */
 export function RoomStatusBadge({ state, emptyDelayS, className }: { state: RoomState | undefined; emptyDelayS: number; className?: string }) {
-  const left = state ? emptyingSecondsLeft(state, emptyDelayS, state.updatedAt) : null
+  const left = state ? emptyingSeconds(state, emptyDelayS, state.updatedAt) : null
   if (left === null) return <StatusBadge status={state?.status ?? 'unknown'} className={className} />
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-full bg-warn/15 px-2 py-0.5 text-xs font-medium text-warn', className)} title="Nobody seen; the room counts as empty once the empty delay has passed">

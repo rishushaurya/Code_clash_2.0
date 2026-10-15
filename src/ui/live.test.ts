@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { setSite } from '@/shared/site'
 import { testSite } from '@/test/fixture'
 import type { Alert, RoomState } from '@/shared/types'
-import { ago, buildingTotals, emptyingSecondsLeft, freshness, healthScore, lastInputAt, topActions } from './live'
+import { ago, buildingTotals, freshness, healthScore, lastInputAt, topActions } from './live'
 
 const room = (patch: Partial<RoomState>): RoomState => ({
   roomId: 'R',
@@ -29,13 +29,6 @@ const room = (patch: Partial<RoomState>): RoomState => ({
 beforeAll(() => setSite(testSite))
 
 describe('shell live helpers', () => {
-  it('labels a room emptying only while nobody is seen inside the empty delay (T1)', () => {
-    const now = 100_000
-    expect(emptyingSecondsLeft(room({ status: 'occupied', headcount: 0, emptySince: now - 20_000 }), 300, now)).toBe(280)
-    expect(emptyingSecondsLeft(room({ status: 'occupied', headcount: 3, emptySince: null }), 300, now)).toBeNull()
-    expect(emptyingSecondsLeft(room({ status: 'waste', emptySince: now - 400_000 }), 300, now)).toBeNull()
-  })
-
   it('scores health from measured state and says nothing without inputs', () => {
     expect(healthScore([room({ status: 'unknown', sources: [] })], 0)).toBeNull()
     const h = healthScore([room({ status: 'waste', watts: 500 }), room({ status: 'occupied', headcount: 5, watts: 500 }), room({ status: 'unknown', sources: [] })], 2)!

@@ -5,7 +5,7 @@
 import { z } from 'zod'
 import { create } from 'zustand'
 import { WATTS } from './config'
-import type { DeviceType, Room, RoomType, Site } from './types'
+import type { DeviceType, FurnitureKind, Room, RoomType, Site } from './types'
 import { apiFetch, ns, online } from './workspace'
 
 const STORAGE_KEY = ns('pratibimb:site')
@@ -118,6 +118,9 @@ export function zonesOf(room: Room) {
   return ids.map((id) => ({ id, kind: id.startsWith('F') ? ('motion' as const) : ('brightness' as const), label: id.startsWith('F') ? 'fan' : id.startsWith('S') ? 'screen' : 'light' }))
 }
 
+const HEX = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+export const FURNITURE_KINDS = ['desk', 'chair', 'table', 'bench', 'board', 'sofa', 'shelf', 'plant', 'podium', 'bed'] as const satisfies readonly FurnitureKind[]
+
 const RoomSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9-]{1,12}$/),
   name: z.string().min(1).max(60),
@@ -130,6 +133,11 @@ const RoomSchema = z.object({
   polygon: z.array(z.tuple([z.number(), z.number()])).min(3).optional(),
   devices: z.array(z.object({ id: z.string(), type: z.enum(['light', 'fan', 'ac', 'projector', 'pc']), ratedW: z.number().min(0), zone: z.string().optional(), brickClass: z.string(), position: z.tuple([z.number(), z.number(), z.number()]).optional() })),
   heightM: z.number().positive().max(30).optional(),
+  style: z.object({ wall: HEX.optional(), floor: HEX.optional(), accent: HEX.optional() }).optional(),
+  furniture: z
+    .array(z.object({ kind: z.enum(FURNITURE_KINDS), x: z.number().min(0).max(500), z: z.number().min(0).max(500), rot: z.number().min(-7).max(7) }))
+    .max(400)
+    .optional(),
   cameraMerge: z.enum(['max', 'sum']).optional(),
   hasRealRelay: z.boolean().optional(),
   autoLayout: z.boolean().optional(),
@@ -156,6 +164,7 @@ export const SiteSchema = z.object({
   floors: z.array(z.object({ level: z.number().int(), name: z.string(), building: z.string().max(60).optional() })).min(1),
   rooms: z.array(RoomSchema),
   telegramChatId: z.string().regex(/^-?\d{1,20}$/, 'Telegram chat id: digits, with a minus sign for groups').optional(),
+  planScaleM: z.number().positive().max(10).optional(),
   outline: z
     .object({ osmId: z.number(), name: z.string().nullable(), poly: z.array(z.tuple([z.number(), z.number()])).min(3).max(2000), levels: z.number().nullable(), heightM: z.number().nullable() })
     .optional(),

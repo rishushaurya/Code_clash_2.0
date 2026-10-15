@@ -6,6 +6,8 @@
 
 import { json, logJson } from './_lib/http.js'
 import * as copilot from './_routes/ai/copilot.js'
+import * as design from './_routes/ai/design.js'
+import * as floorplan from './_routes/ai/floorplan.js'
 import * as recommend from './_routes/ai/recommend.js'
 import * as aiReport from './_routes/ai/report.js'
 import * as setup from './_routes/ai/setup.js'
@@ -36,6 +38,8 @@ type Handler = (req: Request) => Response | Promise<Response>
 
 const ROUTES: Record<string, Record<string, unknown>> = {
   'ai/copilot': copilot,
+  'ai/design': design,
+  'ai/floorplan': floorplan,
   'ai/recommend': recommend,
   'ai/report': aiReport,
   'ai/setup': setup,

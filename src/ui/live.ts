@@ -37,15 +37,6 @@ export function ago(ageS: number) {
   return `${Math.round(ageS / 3600)} h ago`
 }
 
-/**
- * The twin keeps a room "occupied" for the empty delay after the last person is seen (T1). With nobody in the
- * room that is not occupied but emptying: returns the seconds left, or null when the label does not apply.
- */
-export function emptyingSecondsLeft(s: RoomState, emptyDelayS: number, now: number) {
-  if (s.status !== 'occupied' || s.headcount > 0 || s.emptySince === null) return null
-  return Math.max(0, Math.ceil(emptyDelayS - (now - s.emptySince) / 1000))
-}
-
 export interface HealthFactor {
   label: string
   /** Points taken off the 100 */

@@ -17,7 +17,7 @@ import type { DeviceType, Room, RoomState } from '@/shared/types'
 import { useTwin } from '@/twin/store'
 import { EmptyState, PageHeader } from '../components/states'
 import { RoomStatusBadge, SourceBadges, STATUS } from '../components/status'
-import { emptyingSecondsLeft } from '../live'
+import { emptyingSeconds } from '@/twin/compute'
 
 const NAMES: Record<DeviceType, [string, string]> = { light: ['light', 'lights'], fan: ['fan', 'fans'], ac: ['AC', 'ACs'], projector: ['projector', 'projectors'], pc: ['PC', 'PCs'] }
 type Filter = 'all' | 'occupied' | 'emptying' | 'waste' | 'idle' | 'unknown'
@@ -32,7 +32,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 function statusOf(s: RoomState | undefined, delay: number): Filter {
   if (!s) return 'unknown'
-  return emptyingSecondsLeft(s, delay, s.updatedAt) !== null ? 'emptying' : s.status
+  return emptyingSeconds(s, delay, s.updatedAt) !== null ? 'emptying' : s.status
 }
 
 function Coverage({ room }: { room: Room }) {

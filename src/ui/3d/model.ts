@@ -272,7 +272,7 @@ export function collide(p: V2, r: number, segs: { a: V2; b: V2 }[]): V2 {
  * The whole site in metres. `moved` shifts rooms by [dx, dz] metres while they are dragged in edit mode.
  * Buildings of a campus stand side by side along x; floors stack by their tallest room (3 m when unset).
  */
-export function buildModel(input: Pick<Site, 'floors' | 'rooms'>, moved: Record<string, V2> = {}): Model {
+export function buildModel(input: Pick<Site, 'floors' | 'rooms' | 'planScaleM'>, moved: Record<string, V2> = {}): Model {
   // Rooms without a drawn shape get the same automatic layout as the floor plan.
   const site = { ...input, rooms: layoutRooms(input.rooms) }
   const floorOf = new Map(site.floors.map((f) => [f.level, f]))
@@ -286,7 +286,7 @@ export function buildModel(input: Pick<Site, 'floors' | 'rooms'>, moved: Record<
     const bLevels = levels.filter((l) => buildingOf(l) === name)
     const bRooms = site.rooms.filter((r) => bLevels.includes(r.floor))
     // Every room is drawn from its floor-plan polygon, so the 3D model and the 2D plan always match.
-    const scale = planScale(bRooms) || 0.05
+    const scale = input.planScaleM ?? (planScale(bRooms) || 0.05)
     const local = new Map<string, V2[]>()
     for (const r of bRooms) if (r.polygon) local.set(r.id, r.polygon.map((p) => mul(sub(p, [PLAN_MARGIN, PLAN_MARGIN]), scale)))
     const all = [...local.values()].flat()
@@ -343,6 +343,7 @@ export function savePolygons(site: Site, model: Model, levels: number[]): Site {
   const geo = new Map(model.floors.filter((f) => levels.includes(f.level)).flatMap((f) => f.rooms.map((r) => [r.id, { r, f }] as const)))
   return {
     ...site,
+    planScaleM: site.planScaleM ?? model.buildings[0]?.scale,
     rooms: site.rooms.map((room) => {
       const g = geo.get(room.id)
       if (!g) return room
