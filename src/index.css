@@ -175,6 +175,16 @@
   animation: waste-pulse 2s ease-in-out infinite;
 }
 
+/* The Assistant speaking: four bars rise and fall. */
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq 0.9s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation: none !important;

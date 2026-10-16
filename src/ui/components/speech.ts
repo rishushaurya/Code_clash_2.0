@@ -15,6 +15,7 @@ const SPEECH_RMS = 0.02
 /**
  * Starts recording from the microphone. `stop()` ends it and returns the audio; it also ends by itself after
  * `maxMs`, or, with `untilSilence`, once the person has spoken and then stayed quiet. `done` resolves either way.
+ * `level()` is the loudness now, 0 to 1, for a live meter.
  */
 export async function startRecording(maxMs = 180_000, { untilSilence = false } = {}) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
@@ -25,6 +26,22 @@ export async function startRecording(maxMs = 180_000, { untilSilence = false } =
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
   let watch: ReturnType<typeof setInterval> | undefined
   let meter: AudioContext | undefined
+  let analyser: AnalyserNode | undefined
+  let buf = new Float32Array(0)
+  try {
+    meter = new AudioContext()
+    analyser = meter.createAnalyser()
+    analyser.fftSize = 1024
+    meter.createMediaStreamSource(stream).connect(analyser)
+    buf = new Float32Array(analyser.fftSize)
+  } catch {
+    // No audio graph on this device: the recording works, without a meter or the silence stop.
+  }
+  const rms = () => {
+    if (!analyser) return 0
+    analyser.getFloatTimeDomainData(buf)
+    return Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length)
+  }
   const done = new Promise<Blob>((resolve) => {
     rec.onstop = () => {
       clearInterval(watch)
@@ -36,17 +53,11 @@ export async function startRecording(maxMs = 180_000, { untilSilence = false } =
   rec.start(1000)
   const stop = () => rec.state !== 'inactive' && rec.stop()
   const timer = setTimeout(stop, maxMs)
-  if (untilSilence) {
-    meter = new AudioContext()
-    const analyser = meter.createAnalyser()
-    meter.createMediaStreamSource(stream).connect(analyser)
-    const buf = new Float32Array(analyser.fftSize)
+  if (untilSilence && analyser) {
     let heard = false
     let quietSince = 0
     watch = setInterval(() => {
-      analyser.getFloatTimeDomainData(buf)
-      const rms = Math.sqrt(buf.reduce((a, v) => a + v * v, 0) / buf.length)
-      if (rms > SPEECH_RMS) {
+      if (rms() > SPEECH_RMS) {
         heard = true
         quietSince = 0
       } else if (heard) {
@@ -57,6 +68,8 @@ export async function startRecording(maxMs = 180_000, { untilSilence = false } =
   }
   return {
     done,
+    // Speech sits around 0.02 to 0.2 RMS; scaled so normal talking fills most of the meter.
+    level: () => Math.min(1, rms() * 6),
     stop() {
       clearTimeout(timer)
       stop()
@@ -68,7 +81,7 @@ export async function startRecording(maxMs = 180_000, { untilSilence = false } =
 /** Why the microphone could not start, in words a person can act on */
 export function micError(e: unknown) {
   const name = e instanceof Error ? e.name : ''
-  if (name === 'NotAllowedError') return 'Microphone permission is off. Allow it in the address bar, then press Speak again.'
+  if (name === 'NotAllowedError') return 'Microphone permission is off. Allow it in the address bar, then try again.'
   if (name === 'NotFoundError') return 'No microphone was found on this device.'
   return 'The microphone could not start. You can type instead.'
 }
@@ -104,11 +117,25 @@ const readVoice = (): VoiceId => {
   }
 }
 
-/** idle: not downloaded yet; loading: downloading or starting (progress in percent); ready; failed: the device voice is used */
-export const useVoice = create<{ voice: VoiceId; state: 'idle' | 'loading' | 'ready' | 'failed'; progress: number; speaking: boolean }>(() => ({
+/** Set once the voice pack has downloaded on this device, so later visits load it from the cache without asking */
+const PACK_KEY = 'pratibimb:voice-pack'
+export const voicePackSaved = () => {
+  try {
+    return localStorage.getItem(PACK_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * idle: not downloaded yet; loading: downloading or starting (progress of the model in percent); ready; failed:
+ * the device voice is used. `voices` lists the voice files already on this device.
+ */
+export const useVoice = create<{ voice: VoiceId; state: 'idle' | 'loading' | 'ready' | 'failed'; progress: number; voices: VoiceId[]; speaking: boolean }>(() => ({
   voice: typeof localStorage === 'undefined' ? 'af_heart' : readVoice(),
   state: 'idle',
   progress: 0,
+  voices: [],
   speaking: false,
 }))
 
@@ -152,18 +179,21 @@ let worker: Worker | null = null
 let seq = 0
 const pending = new Map<number, { resolve: (r: { audio?: Float32Array<ArrayBuffer>; rate?: number }) => void; reject: (e: Error) => void }>()
 
-function call(msg: { text?: string; voice?: VoiceId }) {
+function call(msg: { text?: string; voice?: VoiceId; voices?: VoiceId[] }) {
   if (!worker) {
     worker = new Worker(new URL('./voice.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (e) => {
       const d = e.data
       if (d.progress !== undefined) return useVoice.setState({ progress: d.progress })
+      if (d.voiceReady) return useVoice.setState((s) => ({ voices: s.voices.includes(d.voiceReady) ? s.voices : [...s.voices, d.voiceReady] }))
       const p = pending.get(d.id)
       pending.delete(d.id)
       if (d.error) p?.reject(new Error(d.error))
       else p?.resolve(d)
     }
     worker.onerror = () => {
+      worker?.terminate()
+      worker = null
       useVoice.setState({ state: 'failed' })
       pending.forEach((p) => p.reject(new Error('voice worker failed')))
       pending.clear()
@@ -176,13 +206,26 @@ function call(msg: { text?: string; voice?: VoiceId }) {
   })
 }
 
-/** Download and start the natural voice in the background (once; the browser caches the model) */
+/** Download the voice model and every voice file at once, in the background (once; the browser caches them) */
 export function prepareVoice() {
   if (useVoice.getState().state !== 'idle' || typeof Worker === 'undefined') return
   useVoice.setState({ state: 'loading', progress: 0 })
-  call({})
-    .then(() => useVoice.setState({ state: 'ready' }))
+  call({ voices: VOICES.map((v) => v.id) })
+    .then(() => {
+      useVoice.setState({ state: 'ready', progress: 100 })
+      try {
+        localStorage.setItem(PACK_KEY, '1')
+      } catch {
+        // Storage blocked: the next visit asks again, and the browser cache makes it quick.
+      }
+    })
     .catch(() => useVoice.setState({ state: 'failed' }))
+}
+
+/** After a failure: try the download again */
+export function retryVoice() {
+  if (useVoice.getState().state === 'failed') useVoice.setState({ state: 'idle' })
+  prepareVoice()
 }
 
 let token = 0

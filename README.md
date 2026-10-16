@@ -6,10 +6,19 @@
 
 *Pratibimb* is Sanskrit for *reflection*: the twin reflects the building's live state back to the people who run it.
 
+**Live:** [code-clash-2-0.vercel.app](https://code-clash-2-0.vercel.app/)
+
+## Demo video
+
+[![Pratibimb demo: the 3D twin of a college block, with the walk, edit, cutaway and AI design tools](docs/media/pratibimb-demo-poster.jpg)](docs/media/pratibimb-demo.mp4)
+
+**[Watch the 4-minute demo (MP4, 11 MB)](docs/media/pratibimb-demo.mp4).** It shows the whole loop recorded from the real app: a camera counting people with only numbers leaving it, the 3D twin you can walk through and edit, the AI designer, the Assistant answering from live data, the Scenario Lab, automatic switch-off and the audit report. Stock footage appears only in the opening scenes and as the video a camera reads.
+
 ---
 
 ## Contents
 
+- [Demo video](#demo-video)
 - [The problem](#the-problem)
 - [What Pratibimb does](#what-pratibimb-does)
 - [How it meets Problem Statement 04](#how-it-meets-problem-statement-04)
@@ -128,7 +137,7 @@ To put it online with phones as cameras, Telegram and the 24/7 server tick, foll
 ### Advise: AI that writes words, never numbers
 
 - Code computes every number. The AI gets a facts pack and the server rejects any money, energy, CO₂, ppm, temperature, people or percent figure that is not in it, asks once more, and otherwise uses text written by code.
-- **Assistant** in a side panel on every page: explains any number and where it came from, finds rooms with no inputs and walks you through connecting them, proposes changes you approve, runs what-ifs, teaches (kWh, EPI, BEE, NAAC 7.1.6), and talks back in a natural voice that runs on your device.
+- **Assistant** in a side panel on every page: explains any number and where it came from, finds rooms with no inputs and walks you through connecting them, proposes changes you approve, runs what-ifs, teaches (kWh, EPI, BEE, NAAC 7.1.6), and gives exact step-by-step help for any page from this workspace's real setup. Its four natural voices download once, in the background, and run on your device; the microphone shows a live level meter while it listens.
 - **Audit report** for energy and green audits, printable as PDF, with the stored 30-day action log; **weekly digest** to Telegram.
 - **Bring your own keys:** each workspace adds its own keys (Groq, Gemini, OpenAI, Anthropic, OpenRouter or any OpenAI-compatible service) and chooses which one handles chat, reports, photos and voice, with a fallback order. Keys are encrypted on the server and never shown again.
 

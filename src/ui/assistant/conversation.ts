@@ -66,7 +66,7 @@ export async function ask(question: string): Promise<Message | null> {
 async function answer(q: string) {
   const history: Turn[] = useConversation
     .getState()
-    .messages.slice(-3)
+    .messages.slice(-6)
     .map((m) => ({ q: m.q, a: m.a.slice(0, 1500) }))
   let tool: CopilotTool
   let source: Message['source'] = 'ai'
@@ -79,12 +79,14 @@ async function answer(q: string) {
     aiProblem = problemOf(e)
   }
   const result = runTool(tool)
-  let a = tool.tool === 'none' ? OFF_TOPIC : templateAnswer(tool, result)
+  let a = tool.tool === 'none' ? OFF_TOPIC : templateAnswer(tool, result, q)
   const failed = 'error' in result && Boolean(result.error)
   // Off-topic, proposals and errors are answered by code; the rest is worded by the AI from the tool's numbers.
   if (source === 'ai' && !failed && tool.tool !== 'none' && tool.tool !== 'proposeSiteChange') {
     try {
       a = (await copilotAnswer(q, result, history)).answer
+      // Numbered steps each on their own line, however the AI ran them together.
+      if (tool.tool === 'knowledge') a = a.replace(/\s+(?=\d{1,2}\.\s)/g, '\n')
     } catch (e) {
       source = 'offline'
       aiProblem = problemOf(e)

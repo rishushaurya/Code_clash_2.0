@@ -22,10 +22,39 @@ const load = () =>
     },
   }))
 
+/**
+ * One voice file into the cache kokoro-js reads (same cache name and address), so a voice speaks at once when
+ * chosen. About half a megabyte each; a failure only means that voice downloads when first used.
+ */
+async function fetchVoice(voice: string) {
+  const url = `https://huggingface.co/${MODEL}/resolve/main/voices/${voice}.bin`
+  try {
+    const cache = await caches.open('kokoro-voices')
+    if (!(await cache.match(url))) {
+      const res = await fetch(url)
+      if (!res.ok) return
+      await cache.put(url, res)
+    }
+    postMessage({ voiceReady: voice })
+  } catch {
+    // No Cache Storage here (private window): kokoro-js fetches the voice itself.
+  }
+}
+
 // One sentence at a time: the model runs one inference at once, so requests queue.
 let queue = Promise.resolve()
-self.onmessage = (e: MessageEvent<{ id: number; text?: string; voice?: Voice; speed?: number }>) => {
-  const { id, text, voice, speed } = e.data
+self.onmessage = (e: MessageEvent<{ id: number; text?: string; voice?: Voice; speed?: number; voices?: string[] }>) => {
+  const { id, text, voice, speed, voices } = e.data
+  // The voice pack: the model and every voice file download side by side.
+  if (voices) {
+    Promise.all([load(), ...voices.map(fetchVoice)])
+      .then(() => postMessage({ id, ready: true }))
+      .catch((err) => {
+        tts = null
+        postMessage({ id, error: err instanceof Error ? err.message : String(err) })
+      })
+    return
+  }
   queue = queue.then(async () => {
     try {
       const model = await load()

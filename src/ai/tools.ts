@@ -11,6 +11,7 @@ import { readUsage, wastePatterns } from '@/twin/usage'
 import { useCameras } from '@/cv/cameras'
 import { coverage } from '@/cv/coverage'
 import { connectionGuide, explainMetric, teach, TOPICS } from './guides'
+import { guideAnswer, workspaceSnapshot } from './knowledge'
 import { patternFacts, templatePatterns } from './patterns'
 import { propose } from './proposals'
 import type { AuditTrail, CopilotTool } from './client'
@@ -106,6 +107,7 @@ export function runTool(t: CopilotTool) {
   if (t.tool === 'explainMetric') return explainMetric(t.metric, site, s.rooms, t.roomId ? getRoom(t.roomId) : undefined)
   if (t.tool === 'connectionGuide') return connectionGuide(site, s.rooms, t.roomId ? getRoom(t.roomId) : undefined)
   if (t.tool === 'teach') return teach(t.topic, site, t.topic === 'epi' ? siteEpi() : undefined)
+  if (t.tool === 'knowledge') return workspaceSnapshot()
   if (t.tool === 'proposeSiteChange') {
     const p = propose(site, t.change)
     return typeof p === 'string' ? { error: p } : { proposal: p.summary, changes: p.rows }
@@ -136,14 +138,15 @@ export function guessTool(q: string): CopilotTool {
   if (/pattern|when|usually|often|habit/.test(text)) return { tool: 'patterns' }
   if (/wast/.test(text)) return { tool: 'topWasters' }
   if (/most|power|watts|load|summary|every room|all rooms|status/.test(text)) return { tool: 'liveSummary' }
+  if (/how (do|can|to|should)|where (is|do|can)|steps?|guide|help me|set ?up|invite|team|password|key|camera|sensor|report|3d|alert|assistant|energy|sustainab|green|efficien/.test(text)) return { tool: 'knowledge' }
   return { tool: 'none' }
 }
 
 export const OFF_TOPIC =
-  'I can only help with this building and this app: live rooms and power, alerts and their fixes, savings what-ifs, where a number comes from, connecting cameras and sensors, changes to the setup, and terms like kWh, EPI, BEE or NAAC 7.1.6.'
+  'I help with this building, this app, and energy and sustainability: live rooms and power, alerts and their fixes, savings what-ifs, where a number comes from, how to do anything in the app step by step, changes to the setup, and terms like kWh, EPI, BEE or NAAC 7.1.6.'
 
 /** Offline answer written by code from the tool result */
-export function templateAnswer(t: CopilotTool, result: ReturnType<typeof runTool>): string {
+export function templateAnswer(t: CopilotTool, result: ReturnType<typeof runTool>, q = ''): string {
   const x = result as Record<string, unknown>
   if (x.error) return String(x.error)
   if (t.tool === 'liveSummary') {
@@ -174,6 +177,7 @@ export function templateAnswer(t: CopilotTool, result: ReturnType<typeof runTool
     return `${g.roomsWithNoInput.length ? `Rooms with no input: ${g.roomsWithNoInput.join(', ')}. ` : ''}A room can be connected three ways: a camera or phone, the sensor API, or a smart plug. The steps are below.`
   }
   if (t.tool === 'teach') return Object.values(x).filter((v) => typeof v === 'string').join(' ')
+  if (t.tool === 'knowledge') return guideAnswer(q)
   if (t.tool === 'proposeSiteChange') return `Here is the change I propose: ${x.proposal}. Nothing is saved until you press Approve.`
   return OFF_TOPIC
 }

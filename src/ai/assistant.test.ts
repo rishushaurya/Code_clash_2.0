@@ -47,7 +47,7 @@ beforeAll(() => {
 const ask = (q: string) => {
   const tool = guessTool(q)
   const result = runTool(tool)
-  return { tool, result: result as Record<string, unknown>, answer: tool.tool === 'none' ? OFF_TOPIC : templateAnswer(tool, result) }
+  return { tool, result: result as Record<string, unknown>, answer: tool.tool === 'none' ? OFF_TOPIC : templateAnswer(tool, result, q) }
 }
 
 describe('the ten scripted Assistant questions', () => {
@@ -112,6 +112,23 @@ describe('the ten scripted Assistant questions', () => {
     const { tool, answer } = ask('Who won the cricket match yesterday?')
     expect(tool.tool).toBe('none')
     expect(answer).toBe(OFF_TOPIC)
+  })
+})
+
+describe('knowledge: this workspace and the app guide', () => {
+  it('answers a how-to with the exact steps, offline', () => {
+    const { tool, answer } = ask('How do I invite a teammate as a viewer?')
+    expect(tool.tool).toBe('knowledge')
+    expect(answer.startsWith('Team, roles and devices (/settings/team):\n1. ')).toBe(true)
+    expect(answer).toContain('Create link')
+  })
+
+  it('gives the AI the real setup: rooms, devices, cameras and the guide', () => {
+    const { result } = ask('Guide me through what is set up here')
+    const snap = result as unknown as { totals: { rooms: number }; rooms: { roomId: string; devices: Record<string, number> }[]; appGuide: unknown[] }
+    expect(snap.totals.rooms).toBe(getSite().rooms.length)
+    expect(snap.rooms.find((r) => r.roomId === 'LH-1')?.devices.light).toBe(getSite().rooms.find((r) => r.id === 'LH-1')!.devices.filter((d) => d.type === 'light').length)
+    expect(snap.appGuide.length).toBeGreaterThan(5)
   })
 })
 

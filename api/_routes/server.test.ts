@@ -427,6 +427,18 @@ describe('roles, sessions and the workspace', () => {
     expect(fake.db.settings_log.some((r) => r.action === 'session.revoke')).toBe(true)
   })
 
+  it('keeps Team and access working before the sessions table exists', async () => {
+    fakeSupabase()
+    const real = globalThis.fetch
+    vi.stubGlobal('fetch', (input: string | URL, init?: RequestInit) => (String(input).includes('/rest/v1/sessions') ? Promise.resolve(new Response('{"code":"PGRST205"}', { status: 404 })) : real(input, init)))
+    const owner = await (await call('workspace', { body: { mode: 'create', name: 'Acme', password: 'correct horse' } })).json()
+    expect(owner).toMatchObject({ id: 'acme', role: 'owner' })
+    const res = await call('sessions', { token: owner.token })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ sessions: [], setup: true })
+    expect((await call('workspace/invite', { token: owner.token, body: { role: 'viewer' } })).status).toBe(200)
+  })
+
   it('changes the password and signs every other session out', async () => {
     const fake = fakeSupabase()
     const owner = await (await call('workspace', { body: { mode: 'create', name: 'Acme', password: 'correct horse' } })).json()

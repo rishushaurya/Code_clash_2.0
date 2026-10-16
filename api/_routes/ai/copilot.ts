@@ -32,7 +32,7 @@ const Change = z.object({
   type: z.enum(ROOM_TYPES).optional(),
 })
 const Plan = z.object({
-  tool: z.enum(['liveSummary', 'runScenario', 'topWasters', 'getRoom', 'patterns', 'coverage', 'explainMetric', 'connectionGuide', 'proposeSiteChange', 'teach', 'none']),
+  tool: z.enum(['liveSummary', 'runScenario', 'topWasters', 'getRoom', 'patterns', 'coverage', 'explainMetric', 'connectionGuide', 'proposeSiteChange', 'teach', 'knowledge', 'none']),
   policy: z.enum(['auto_off', 'daylight', 'consolidate', 'combined']).optional(),
   emptyMinutes: z.number().int().min(1).max(60).optional(),
   roomId: z.string().optional(),
@@ -40,7 +40,7 @@ const Plan = z.object({
   topic: z.enum(TOPICS).optional(),
   change: Change.optional(),
 })
-const Answer = z.object({ answer: z.string().max(1200) })
+const Answer = z.object({ answer: z.string().max(2000) })
 
 const History = z.array(z.object({ q: z.string().max(500), a: z.string().max(1500) })).max(6).optional()
 const Body = z.union([
@@ -48,7 +48,7 @@ const Body = z.union([
   z.object({ question: z.string().min(2).max(500), toolResult: z.unknown(), history: History }),
 ])
 
-const PLAN_SYSTEM = `You are the Assistant of Pratibimb, the digital twin of one building. You help only with this building and this app.
+const PLAN_SYSTEM = `You are the Assistant of Pratibimb, the digital twin of one building. You help with this building, this app, and energy, comfort and sustainability.
 Choose exactly one tool for the user's latest question. Earlier turns are given for context ("and LH-2?").
 Tools:
 - liveSummary: every watched room with people, power and status, highest power first. Use for "which room uses the most power", "what is on now", "give me a summary".
@@ -65,7 +65,9 @@ Tools:
   addRoom {id (like LH-3), name, floor, type (lecture_hall, classroom, lab, office, meeting, other), capacity}; renameRoom {roomId, name}.
   Use only numbers the user said. The change is shown to the user for approval; it is never saved by you.
 - teach: explain a term. topic is kwh, epi, bee (Bureau of Energy Efficiency, star labels, AC 24 C), co2 (grid emissions and the indoor CO2 model), naac (NAAC criterion 7.1.6).
-- none: greetings, and anything not about this building, its energy, comfort, data or this app (general knowledge, coding, other buildings, opinions).
+- knowledge: everything else about this workspace and app: how to do something step by step (setup, cameras, connections, keys, team and invites, the 3D view, alerts, reports, the Assistant itself), what is set up (rooms, devices, cameras, hours, auto-off, alerts, your role), troubleshooting, and general advice on energy efficiency, green buildings, indoor comfort, audits and building hardware.
+- none: greetings, and topics unrelated to buildings, energy, sustainability or this app (sport, politics, coding help, opinions).
+Prefer the most specific tool; use knowledge when no other tool fits.
 Room ids must be from the given list, except the id of a new room in addRoom.
 Reply with JSON only: {"tool", "policy"?, "emptyMinutes"?, "roomId"?, "metric"?, "topic"?, "change"?}.`
 
@@ -77,9 +79,14 @@ Rules:
 - Only when the tool result has watchedRooms equal to 0, say that no room has a camera or sensor yet, so nothing can be judged, and offer to explain how to connect one.
 - Coverage counts only what cameras watch; a room with no camera may still have a sensor or staff reports (liveInputs).
 - For a tool result with steps, give a one or two sentence summary; the steps are shown below your answer.
-- For teach, explain in plain words a newcomer understands, at most 120 words. Otherwise at most 80 words.
+- For teach, explain in plain words a newcomer understands, at most 120 words. Otherwise at most 80 words, except knowledge.
+- For knowledge, the tool result is this workspace now and the app guide. For a how-to, give the exact steps from appGuide
+  that fit this workspace, as short numbered lines (1. 2. 3.), naming the page, its route and the button labels, at most
+  200 words; skip steps already done (for example rooms already set up). For a question about the setup, answer from
+  building, totals, rooms and openAlerts. For general advice, be practical and specific to this building's rooms and
+  devices, without figures that are not in the tool result.
 - Your answer is read aloud. Sound like a friendly, sharp colleague standing next to them, not a report: natural spoken
-  sentences with contractions, short and easy to follow, no lists. Lead with the answer, then the one detail that matters.
+  sentences with contractions, short and easy to follow, no lists except numbered steps for knowledge. Lead with the answer, then the one detail that matters.
   When it helps, end with one short offer of a next step, as a question (switch it off, explain it, show how to connect it).
   Vary how you start; never open with "Great question", "Certainly", "Sure!" or "As an AI". A light, warm touch is fine
   when all is well; be calm and direct when something is wasting power or the air is poor. Use the earlier turns so a

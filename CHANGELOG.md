@@ -2,6 +2,20 @@
 
 Newest first. Each release says what changed for the people who use Pratibimb.
 
+## 2.1 · An Assistant that knows the whole app
+
+**Assistant**
+- Knows this workspace and the app: the real setup (rooms, devices, cameras, hours, auto-off, open alerts, your role) and every page with its exact steps, so "how do I invite a viewer?" gets numbered steps for this building. It also gives practical energy and sustainability advice; only unrelated topics are declined. It remembers six turns instead of three.
+- The Assistant button is blue, so it is easy to find on every page.
+- Natural voices: the panel offers the voice pack first (about 90 MB, once); the model and all four voices download side by side while you keep asking, with progress for each voice and a Preview once ready. Later visits load them quietly from the device.
+- Microphone: a live level meter, a pulsing ring and a timer while it listens; Cancel, or Ask when done; "Writing down what you said" while it transcribes; a speaking indicator with Stop.
+
+**Team and access**
+- Fixed: on a Supabase project without the sessions table, the page showed only "Storage unavailable". Invites, the password and your data now work, and the device list names the one SQL step.
+
+**Docs**
+- The demo video and its poster are in the README.
+
 ## 2.0 · A building you can walk into, run anywhere
 
 **3D twin**

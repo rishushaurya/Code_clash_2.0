@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiFetch, can, joinLink, online, SESSION, signOut } from '@/shared/workspace'
-import { callApi, useApi } from '../api'
+import { callApi, useApi, type ApiState } from '../api'
 import { ErrorState, NotYet, PageHeader, PanelSkeleton } from '../components/states'
 
 type Role = 'owner' | 'manager' | 'viewer'
@@ -96,7 +96,10 @@ function Invite() {
   )
 }
 
-function Devices({ list, reload }: { list: SessionRow[]; reload: () => void }) {
+type SessionsState = ApiState<{ sessions: SessionRow[]; setup?: boolean }>
+
+function Devices({ state, reload }: { state: SessionsState; reload: () => void }) {
+  const list = state.state === 'ok' ? (state.data.sessions ?? []) : []
   async function revoke(s: SessionRow) {
     const r = await callApi(`/api/sessions?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' })
     if (r.state !== 'ok') return fail(r)
@@ -112,7 +115,15 @@ function Devices({ list, reload }: { list: SessionRow[]; reload: () => void }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {list.length === 0 ? (
+        {state.state === 'loading' ? (
+          <PanelSkeleton rows={2} />
+        ) : state.state === 'error' ? (
+          <ErrorState message={state.message} onRetry={reload} />
+        ) : state.state === 'ok' && state.data.setup ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            The device list needs one database step: run <code className="font-mono text-xs">supabase/schema.sql</code> once in the Supabase SQL editor. Invites, the password and your data work now.
+          </p>
+        ) : list.length === 0 ? (
           <p className="text-sm text-muted-foreground">No device is signed in.</p>
         ) : (
           <ul className="divide-y text-sm">
@@ -232,7 +243,7 @@ function YourData() {
 
 export default function Team() {
   const owner = can('owner')
-  const [sessions, reload] = useApi<{ sessions: SessionRow[] }>(online() && owner ? '/api/sessions' : null)
+  const [sessions, reload] = useApi<{ sessions: SessionRow[]; setup?: boolean }>(online() && owner ? '/api/sessions' : null)
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader title="Team and access" description={`Who can open ${SESSION?.name ?? 'this workspace'}, and from which devices.`} />
@@ -254,14 +265,10 @@ export default function Team() {
             </Button>
           </CardContent>
         </Card>
-      ) : sessions.state === 'loading' ? (
-        <PanelSkeleton rows={5} />
-      ) : sessions.state === 'error' ? (
-        <ErrorState message={sessions.message} onRetry={reload} />
-      ) : sessions.state === 'ok' ? (
+      ) : sessions.state !== 'missing' ? (
         <>
           <Invite />
-          <Devices list={sessions.data.sessions ?? []} reload={reload} />
+          <Devices state={sessions} reload={reload} />
           <Password />
           <YourData />
         </>

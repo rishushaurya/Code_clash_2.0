@@ -379,7 +379,7 @@ export function Layout() {
               </Link>
             </Button>
           </IconTip>
-          <Button size="sm" onClick={() => setAssistant(true)} className="gap-1.5" aria-label="Open the Assistant">
+          <Button size="sm" onClick={() => setAssistant(true)} className="gap-1.5 bg-ai text-on-ai shadow-sm hover:bg-ai/90" aria-label="Open the Assistant">
             <Bot aria-hidden /> <span className="hidden lg:inline">Assistant</span>
           </Button>
           <WorkspaceMenu onInvite={() => setInvite(true)} />
@@ -403,7 +403,7 @@ export function Layout() {
         <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-md">
           <SheetHeader className="border-b">
             <SheetTitle className="flex items-center gap-2">
-              <Bot className="size-4 text-highlight" aria-hidden /> Assistant
+              <Bot className="size-4 text-ai" aria-hidden /> Assistant
             </SheetTitle>
             <SheetDescription>Answers from this building's live data. It never changes anything without your approval.</SheetDescription>
           </SheetHeader>

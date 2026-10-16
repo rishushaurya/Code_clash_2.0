@@ -2,7 +2,7 @@
 // twin, simulation and site (code computes, the AI words it); setup changes come back as a diff to approve.
 // Panel content only: the app shell places it in its side sheet, and the Live Twin page in a card.
 
-import { AudioLines, Bot, Check, FileCog, Mic, MicOff, RotateCcw, Send, Volume2, VolumeX, X } from 'lucide-react'
+import { AudioLines, Bot, Check, FileCog, Mic, Play, RotateCcw, Send, Volume2, VolumeX, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -12,9 +12,10 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSite } from '@/shared/site'
 import { online } from '@/shared/workspace'
-import { canRecord, chooseVoice, prepareVoice, speak, startRecording, stopSpeaking, useVoice, voiceError, VOICES, type VoiceId } from '../components/speech'
+import { canRecord, chooseVoice, prepareVoice, speak, startRecording, stopSpeaking, useVoice, voiceError, voicePackSaved, VOICES, type VoiceId } from '../components/speech'
 import { AiKeyHint } from './AiKeyHint'
 import { approve, ask, clearConversation, dismiss, useConversation, type Message } from './conversation'
+import { ListeningBar, SpeakingBar, TranscribingBar, VoicePack } from './voice-ui'
 
 const TOOL_LABEL: Record<Message['tool'], string> = {
   liveSummary: 'Read every watched room',
@@ -26,6 +27,7 @@ const TOOL_LABEL: Record<Message['tool'], string> = {
   explainMetric: 'Traced where the number comes from',
   connectionGuide: 'Connection guide',
   proposeSiteChange: 'Proposed a setup change',
+  knowledge: 'Read this workspace and the app guide',
   teach: 'Explained a term',
   none: 'Outside what I can help with',
 }
@@ -35,6 +37,15 @@ const LANGS = [
   { code: 'hi', label: 'हिन्दी', voice: 'hi-IN' },
   { code: 'kn', label: 'ಕನ್ನಡ', voice: 'kn-IN' },
 ] as const
+
+const LATER_KEY = 'pratibimb:voice-pack-later'
+const readLater = () => {
+  try {
+    return sessionStorage.getItem(LATER_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 const SPEAK_KEY = 'pratibimb:assistant-speak'
 const readSpeak = () => {
@@ -147,7 +158,12 @@ export function AssistantPanel() {
   const [q, setQ] = useState('')
   const [lang, setLang] = useState<(typeof LANGS)[number]['code']>('en')
   const [voiceOut, setVoiceOut] = useState(readSpeak)
-  const [listening, setListening] = useState(false)
+  // listening: the microphone records; transcribing: the server writes the words down
+  const [phase, setPhase] = useState<'idle' | 'listening' | 'transcribing'>('idle')
+  const listening = phase === 'listening'
+  const cancelRef = useRef(false)
+  const [meter, setMeter] = useState<(() => number) | null>(null)
+  const [later, setLater] = useState(readLater)
   // Conversation mode: after each spoken answer the microphone opens again, and stops when the person goes quiet.
   const [talking, setTalking] = useState(false)
   const talkingRef = useRef(false)
@@ -155,9 +171,9 @@ export function AssistantPanel() {
   const recRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
-  // Fetch the natural voice early when answers are read aloud; stop talking and listening when the panel closes.
+  // Voices already downloaded on this device load quietly from the cache; stop talking and listening on close.
   useEffect(() => {
-    if (voiceOut) prepareVoice()
+    if (voiceOut || voicePackSaved()) prepareVoice()
   }, [voiceOut])
   useEffect(
     () => () => {
@@ -178,6 +194,7 @@ export function AssistantPanel() {
     'What would auto-off save in a month?',
     'Where does the power figure come from?',
     'What is EPI?',
+    'How do I invite a teammate?',
     'Turn on auto-off after 10 minutes',
   ]
 
@@ -196,22 +213,32 @@ export function AssistantPanel() {
     // Speaking over the Assistant interrupts it, like in a real conversation.
     stopSpeaking()
     try {
+      cancelRef.current = false
       const rec = await startRecording(30_000, { untilSilence: talkingRef.current })
       recRef.current = rec
-      setListening(true)
+      setMeter(() => rec.level)
+      setPhase('listening')
       const audio = await rec.done
       recRef.current = null
-      setListening(false)
-      if (!talkingRef.current && audio.size === 0) return
+      if (cancelRef.current || (!talkingRef.current && audio.size === 0)) return setPhase('idle')
+      setPhase('transcribing')
       const text = await transcribe(audio, lang)
+      setPhase('idle')
       if (text) await send(text)
       else if (talkingRef.current) setTalking((talkingRef.current = false))
     } catch (e) {
       recRef.current = null
-      setListening(false)
+      setPhase('idle')
       setTalking((talkingRef.current = false))
       toast.error(voiceError(e))
     }
+  }
+
+  /** Stop recording and throw the audio away; also ends a hands-free conversation */
+  function cancelListening() {
+    cancelRef.current = true
+    setTalking((talkingRef.current = false))
+    void recRef.current?.stop()
   }
 
   function toggleTalking() {
@@ -240,9 +267,23 @@ export function AssistantPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        {lang === 'en' && !later && voice.state !== 'ready' && (
+          <div className="mb-3">
+            <VoicePack
+              onLater={() => {
+                setLater(true)
+                try {
+                  sessionStorage.setItem(LATER_KEY, '1')
+                } catch {
+                  // Storage blocked: the card stays hidden for this page.
+                }
+              }}
+            />
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Ask about this building: live rooms and power, alerts, savings, where a number comes from, connecting a room, or a change to the setup.</p>
+            <p className="text-sm text-muted-foreground">Ask about this building: live rooms and power, alerts, savings, where a number comes from, how to do anything in the app, or a change to the setup.</p>
             <ul className="flex flex-wrap gap-2" aria-label="Suggested questions">
               {suggestions.map((s) => (
                 <li key={s}>
@@ -282,26 +323,24 @@ export function AssistantPanel() {
           void send(q)
         }}
       >
-        <div className="flex gap-2">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this building" aria-label="Question for the Assistant" className="h-10 min-w-0" maxLength={500} />
-          {canRecord && online() && (
-            <Button
-              type="button"
-              variant={listening ? 'default' : 'outline'}
-              className="size-10 shrink-0"
-              onClick={listen}
-              disabled={busy}
-              aria-pressed={listening}
-              aria-label={listening ? 'Stop and ask' : 'Ask by voice'}
-              title={listening ? 'Listening: tap again to ask' : 'Ask by voice'}
-            >
-              {listening ? <MicOff aria-hidden /> : <Mic aria-hidden />}
+        <SpeakingBar />
+        {phase === 'listening' && meter ? (
+          <ListeningBar level={meter} handsFree={talking} onCancel={cancelListening} onStop={() => void recRef.current?.stop()} />
+        ) : phase === 'transcribing' ? (
+          <TranscribingBar />
+        ) : (
+          <div className="flex gap-2">
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask about this building" aria-label="Question for the Assistant" className="h-10 min-w-0" maxLength={500} />
+            {canRecord && online() && (
+              <Button type="button" variant="outline" className="size-10 shrink-0 border-ai/40 text-ai hover:bg-ai/10 hover:text-ai" onClick={listen} disabled={busy} aria-label="Ask by voice" title="Ask by voice">
+                <Mic aria-hidden />
+              </Button>
+            )}
+            <Button type="submit" className="size-10 shrink-0" disabled={busy || !q.trim()} aria-label="Ask">
+              <Send aria-hidden />
             </Button>
-          )}
-          <Button type="submit" className="size-10 shrink-0" disabled={busy || !q.trim()} aria-label="Ask">
-            <Send aria-hidden />
-          </Button>
-        </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <label htmlFor="assistant-lang">Language</label>
           <select id="assistant-lang" value={lang} onChange={(e) => setLang(e.target.value as typeof lang)} className="h-8 rounded-md border bg-card px-2 text-xs focus-visible:outline-2 focus-visible:outline-ring">
@@ -326,6 +365,18 @@ export function AssistantPanel() {
                   </option>
                 ))}
               </select>
+              {voice.state === 'ready' && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8"
+                  disabled={voice.speaking}
+                  onClick={() => void speak(`Hello, I'm ${VOICES.find((v) => v.id === voice.voice)!.label.split(',')[0]}. I'll read the Assistant's answers aloud.`)}
+                >
+                  <Play aria-hidden /> Preview
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -354,18 +405,9 @@ export function AssistantPanel() {
             </Button>
           )}
         </div>
-        {(voiceOut || talking) && lang === 'en' && voice.state !== 'ready' && (
-          <p className="text-xs text-muted-foreground" role="status">
-            {voice.state === 'loading'
-              ? `Getting the natural voice ready, ${voice.progress} %. It downloads once and runs on this device; until then the device's own voice speaks.`
-              : voice.state === 'failed'
-                ? "The natural voice could not start on this device, so its own voice speaks."
-                : 'The natural voice starts with the first answer.'}
-          </p>
-        )}
-        {talking && (
+        {talking && !listening && (
           <p className="text-xs font-medium text-ai" role="status">
-            {listening ? 'Listening. Just talk; I answer when you pause.' : voice.speaking ? 'Speaking. Tap the microphone to cut in.' : busy ? 'Thinking.' : 'Conversation on.'}
+            {voice.speaking ? 'Hands-free is on. Tap the microphone to cut in.' : busy ? 'Thinking.' : 'Hands-free is on.'}
           </p>
         )}
       </form>

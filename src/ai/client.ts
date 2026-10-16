@@ -116,6 +116,7 @@ export type CopilotTool =
   | { tool: 'connectionGuide'; roomId?: string }
   | { tool: 'proposeSiteChange'; change: SiteChange }
   | { tool: 'teach'; topic: Topic }
+  | { tool: 'knowledge' }
   | { tool: 'none' }
 
 /** Earlier questions and answers of this conversation, so "and LH-2?" makes sense */
