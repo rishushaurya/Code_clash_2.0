@@ -1,351 +1,466 @@
 # Pratibimb
 
-**A live digital twin for any building. Cameras you already own find empty rooms wasting power, the twin shows the cost and CO₂, and AI tells the facility manager exactly what to fix.**
+**A live digital twin for any building. Cameras you already own find empty rooms wasting power, the twin shows what that costs in money and CO₂, and AI tells the facility manager exactly what to fix, then helps switch it off.**
 
 **Team Barfi** · Code Clash 2.0 · Problem Statement 04: Green Building Digital Twin
 
-> *Pratibimb* (Sanskrit for *reflection*) — because the twin reflects the building's live state back to the people who run it.
+*Pratibimb* is Sanskrit for *reflection*: the twin reflects the building's live state back to the people who run it.
 
 ---
 
-## Table of Contents
+## Contents
 
-- [The Problem](#the-problem)
-- [What Pratibimb Does](#what-pratibimb-does)
-- [Key Features](#key-features)
-- [Quick Start](#quick-start)
+- [The problem](#the-problem)
+- [What Pratibimb does](#what-pratibimb-does)
+- [How it meets Problem Statement 04](#how-it-meets-problem-statement-04)
+- [Run it in two minutes](#run-it-in-two-minutes)
+- [A tour of the product](#a-tour-of-the-product)
 - [Screens](#screens)
 - [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Quality and Testing](#quality-and-testing)
-- [Repository Map](#repository-map)
+- [How it works](#how-it-works)
+- [The 3D view](#the-3d-view)
+- [API overview](#api-overview)
+- [Tech stack](#tech-stack)
+- [Quality, testing and security](#quality-testing-and-security)
+- [Repository map](#repository-map)
 - [Documentation](#documentation)
-- [Deployment](#deployment)
-- [Team Barfi](#team-barfi)
-- [How We Used AI Tools](#how-we-used-ai-tools)
-- [Research We Build On](#research-we-build-on)
+- [Put it online](#put-it-online)
+- [Team](#team)
+- [How we built it](#how-we-built-it)
+- [Research we build on](#research-we-build-on)
 - [License](#license)
 
 ---
 
-## The Problem
+## The problem
 
-Buildings use about a third of India's electricity, and much of a campus's or office's share lights and cools rooms nobody is in. Nobody sees this waste while it happens, so nobody fixes it. Energy audits, including NAAC metric 7.1.6 for Indian colleges, are still a once-a-year snapshot.
+Buildings use about a third of India's electricity, and much of a campus's or office's share lights and cools rooms nobody is in. Nobody sees that waste while it happens, so nobody fixes it. Energy audits, including NAAC metric 7.1.6 for Indian colleges, are still a once-a-year snapshot.
 
-A US EPA study of 158 rooms in 60 buildings found that occupancy-based switching with a 5-minute delay cut classroom energy waste by **63%** (58% energy savings). The control idea is proven. What buildings lack is a way to see and act on the waste without rewiring every room.
+A US EPA study of 158 rooms in 60 buildings found that occupancy-based switching with a 5-minute delay cut classroom energy waste by 63 % (58 % energy savings). The idea is proven. What buildings lack is a way to see and act on the waste without rewiring every room.
 
-## What Pratibimb Does
+## What Pratibimb does
 
-Pratibimb runs one loop every two seconds:
+It runs one loop, every two seconds in the browser and every minute on the server, so it keeps working when nobody has the app open:
 
 ```mermaid
 flowchart LR
-    A["Sense<br/>Cameras count people and<br/>see lights, fans, screens;<br/>sensors and staff report"] --> B["Mirror<br/>Each room's live state<br/>on your floor plan"]
+    A["Sense<br/>Cameras count people and see<br/>lights, fans and screens;<br/>sensors, plugs and staff report"] --> B["Mirror<br/>Each room's live state on<br/>a 3D model of the building"]
     B --> C["Simulate<br/>Watts, money, CO2,<br/>indoor air, what-if policies"]
-    C --> D["Advise<br/>AI writes a grounded<br/>recommendation"]
-    D --> E["Act<br/>One click or a Telegram tap<br/>switches devices off"]
+    C --> D["Advise<br/>AI explains, in words,<br/>the numbers code computed"]
+    D --> E["Act<br/>One click, a Telegram tap or<br/>automatic switch-off"]
     E -->|camera, sensor or staff confirm| A
 ```
 
-### How We Match the Problem Statement
+## How it meets Problem Statement 04
 
-| Problem Statement Requirement | Pratibimb's Solution |
+| The statement asks for | Pratibimb |
 | --- | --- |
-| Digital twin of a building | Any building: describe it once in Setup (or import a JSON file), see it live, run it forward in the Scenario Lab, send commands back |
-| CV for occupancy | In-browser person detection on any camera: laptop, phone, USB, CCTV; faces blurred, no image stored or sent |
-| CV for lighting | Light zones read by brightness against on/off references |
-| CV for resource usage | Fan zones read by motion, projector screens by brightness, plus sensors and meters through an API |
-| GenAI recommendations for energy efficiency | Alert cards with a one-click fix and a saving from the simulation engine; observed waste patterns ("LH-1, Fridays at 16:00") explained by the AI |
-| Indoor sustainability | Indoor CO₂ measured by room sensors when present, otherwise estimated from live head-counts, with ventilation advice checked against outdoor air quality; AC advice when the outdoor air is already below the 24 °C BEE default |
-| Resource utilization | Observed room-by-hour utilization, underused large rooms, and a "move small classes" policy |
+| A digital twin of a building | Any building, described once in Setup, in plain words to the AI, from a photo of its floor plan, or generated from its real OpenStreetMap outline. Shown as a 3D building you can walk through and edit, live, with time travel, what-if policies and commands sent back to the building |
+| Computer vision for occupancy | In-browser person detection on any camera (laptop, phone, USB, CCTV), counted inside a marked room boundary; faces blurred; no image stored or sent |
+| Computer vision for lighting | Light zones read by brightness against on and off references, relative to a wall patch so daylight does not fool them; lights found automatically by switching them off and on once |
+| Computer vision for resource usage | Fans read by motion, projectors and screens by brightness and detection; meters, smart plugs and Home Assistant through an API; coverage shown per room ("2 of 4 lights watched") |
+| GenAI recommendations: energy efficiency | Alert cards with a fix written by code and a reason written by the AI; recurring waste patterns explained; an Assistant that answers questions about the building and runs what-ifs |
+| GenAI recommendations: indoor sustainability | Indoor CO₂ measured by sensors or estimated from head-counts, with ventilation advice checked against outdoor air quality; AC advice when it is mild outside or a room is overcooled |
+| GenAI recommendations: resource utilization | Observed room-by-hour use, underused large rooms, a "move small classes" policy, and an audit report written from the measured facts |
 
----
+## Run it in two minutes
 
-## Key Features
-
-### Real Data Only
-A fresh install has no rooms and no numbers. Every live figure comes from an observed input: a camera, a connected sensor or meter, or a staff member reporting what they see. A room nobody watches shows **No data**, and a device nobody observes draws nothing in the totals. A switch-off counts as saved money only after a camera, sensor or person confirms the devices went off. The only modelled numbers are the Scenario Lab's what-ifs, built from your own rooms and assumptions and labelled **Modelled**.
-
-### Grounded AI
-Code computes every number. The AI only writes words. It receives a *facts pack* from the twin, and the server rejects any money, kWh, kg, ppm, watt or percent figure that is not in that pack, asks once more, and otherwise falls back to a template written by code. Without any AI key, every AI feature still works from templates.
-
-### Privacy by Design
-Video never leaves the device. Detection runs in the browser (or on an edge box inside the campus network), faces are blurred before anything is drawn, and only a small JSON message is sent: room id, head-count, zone states, confidence. The camera page shows that exact message next to "Images stored: 0" and "Images sent: 0".
-
-### Built for Any Site
-- **Setup in minutes:** search your city (Open-Meteo geocoding), pick a currency, enter the tariff from your bill, add rooms from templates, then match counts to reality. Indian locations prefill INR, the BESCOM educational rate and the CEA grid factor.
-- **One building or a whole campus:** floors can carry a building name, and the twin, league and 3D view group by it.
-- **Any currency, any tariff, any grid factor.** Alerts in English, Hindi or Kannada.
-- **Integrates with what you have:** a sensor API for building systems, smart plugs and Home Assistant; a signed command webhook for your control system; Telegram for staff; CCTV through MediaMTX or the Python edge worker. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
-- **Your data in a portable file:** export and import the site as JSON, with Brick Schema device classes. With server storage, every device shares it automatically.
-- **Everyone can help:** the public view behind each room's QR code has a "Lights left on here?" button that asks staff to check, without changing any reading.
-- **Your hours, your week:** opening hours and days in Setup shape every what-if.
-- **Automatic switch-off when you are ready:** turn it on in Setup after trying it in the Scenario Lab; the twin then switches off rooms left empty with power on, through your relay or control system, once per room until people return. Labs and server rooms can be kept out.
-- **Knows when a camera drops out:** a "Camera offline" alert, with a fix-it card, when a room's camera goes quiet; each room lists its cameras with live status and confidence.
-- **Phones make good cameras:** the camera page keeps the screen awake while it watches, and Pratibimb installs to the home screen.
-- **Uptime-ready:** `/api/health` reports server and storage health for monitoring.
-- **A weekly digest** goes to Telegram every Monday from the stored events.
-- **Learns your building:** after a few hours of observation, Setup suggests your real opening hours and how often empty rooms stay on.
-- **Activity log for auditors:** every alert, command and confirmation, filterable and downloadable as CSV.
-- **Audit trail:** with server storage, every alert, command and confirmation is kept, and the report includes the last 30 days of actions.
-- **Rooftop solar what-if** from the sunshine measured at your location over the last three months.
-- **Workspaces:** each team signs in with a workspace name and password; its building, cameras, live data, alerts and reports stay its own, so many customers share one deployment.
-- **Set up with AI:** describe the building in plain words and the AI fills the setup form; numbers you did not write are left out, and nothing is saved until you review it.
-- **Many cameras, any device:** one laptop runs several cameras, one room can have several, and a QR code turns a phone into a camera in seconds.
-- **Grid factors with sources:** India (CEA), UK (DESNZ), US (EPA eGRID) and Singapore (EMA) prefill on location search.
-
----
-
-## Quick Start
-
-### Prerequisites
-- [Node.js](https://nodejs.org/) (v20 or later)
-- npm (comes with Node.js)
-
-### Install and Run
+You need [Node.js](https://nodejs.org/) 20.19 or newer.
 
 ```bash
-# Clone the repository
 git clone https://github.com/rishushaurya/Code_clash_2.0.git
+```
+
+```bash
 cd Code_clash_2.0
+```
 
-# Install dependencies
+```bash
 npm install
+```
 
-# Start the development server
+```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`, create a workspace (kept in this browser when no server storage is set), go to **Setup**, add your rooms and save. Then open **Cameras**, add a camera for a room, and walk in and out of view.
+Open `http://localhost:5173`.
 
-**No API key is needed for any of this.** The entire twin loop — cameras, detection, twin, simulation, alerts, one-click fixes — runs locally in the browser.
+**No account and no key is needed.** A fresh copy keeps its workspaces, building, keys and history in a local file (`.pratibimb-data/`, ignored by git) and runs the twin's minute tick itself. Then:
 
-### Run Tests
+1. **Create a workspace** with a name and a password.
+2. **Describe the building** in Settings, Site: add rooms from templates, or press **Set up with AI** and say it in plain words.
+3. **Open Building 3D.** The building is drawn from your rooms. Press **Edit** to resize, recolour, add or remove anything.
+4. **Open Cameras**, add your laptop camera for a room, and walk in and out of view. The room turns red when it is empty with the lights on.
+5. **Add your own AI key** in Settings, Keys and AI (Groq and Google Gemini have free plans) to turn on the Assistant, the AI designer and AI-written reports. Without a key every AI feature falls back to text written by code.
+
+To run the checks:
 
 ```bash
 npm test
 ```
 
-### Optional: Online Deployment
+To put it online with phones as cameras, Telegram and the 24/7 server tick, follow [docs/DEPLOY.md](docs/DEPLOY.md). Every service it uses has a free plan.
 
-To put it online for free, with phones, AI and Telegram, follow [docs/DEPLOY.md](docs/DEPLOY.md). Every service it uses has a free plan.
+## A tour of the product
 
----
+### Sense: cameras that only send numbers
+
+- Any camera works: laptop, USB, a phone on a tripod (scan a QR code), or campus CCTV through MediaMTX or the Python edge worker.
+- Person detection runs in the browser with MediaPipe. Faces are blurred before anything is drawn. Each camera sends one small JSON message every two seconds: room, head-count, which zones are on, confidence. The camera page shows that exact message next to "Images stored: 0".
+- **Auto-find:** switch the lights off and on once and the camera proposes a zone for each fixture; ten seconds of a running fan finds the fan.
+- Several cameras per room and per device, each with its own zones; a health line per camera (frame rate, last detection, too dark to count); an alert when a camera goes quiet.
+- Devices a camera cannot see, in a room it watches, take the state of the ones it does see of the same type, marked **Inferred**, and anyone can override them.
+
+### Mirror: a 3D building you can walk into and edit
+
+- The building is generated from the site: floors, rooms, walls with doors, windows on outside walls, a facade with glass bands and columns, a roof with parapet and AC condensers, an entrance, and grounds with trees, a path and parking.
+- Rooms show their live status (occupied, emptying, idle, wasting power, no data) with icon and text, people counts, lights lit and fans turning as the camera sees them.
+- **Orbit, walk or fly.** Walk in at head height with the keyboard or a touch joystick; walls stop you. Cutaway lifts the facade and roof. Full screen. Export the model as `.glb`.
+- **Edit everything:** rename, retype, resize, turn, duplicate, move to another floor or remove a room; add rooms and floors; place each light, fan, AC, projector and camera where it really is; recolour walls and floors; add or rearrange furniture. Undo, then Save, and every device of the workspace shows the change.
+- **Design with AI:** "add a 40-seat classroom on the second floor with 2 ACs", or a photo of a room with "make the Library look like this". The AI proposes a list of changes; you tick the ones to apply.
+- **From the map:** find the building on OpenStreetMap and generate floors and rooms inside its real outline as a starting point. A floor plan photo (the evacuation map on the wall) can reshape the rooms too.
+
+### Simulate: what-ifs you can trust
+
+- The Scenario Lab compares policies (auto-off after N empty minutes, daylight harvesting, moving small classes, all together) against today over 20 modelled weeks on shared random seeds, and reports ranges, not one suspicious number.
+- Business case: payback, energy intensity (EPI), and rooftop solar from the sunshine measured at your location. Every modelled figure is labelled **Modelled**.
+
+### Advise: AI that writes words, never numbers
+
+- Code computes every number. The AI gets a facts pack and the server rejects any money, energy, CO₂, ppm, temperature, people or percent figure that is not in it, asks once more, and otherwise uses text written by code.
+- **Assistant** in a side panel on every page: explains any number and where it came from, finds rooms with no inputs and walks you through connecting them, proposes changes you approve, runs what-ifs, teaches (kWh, EPI, BEE, NAAC 7.1.6), and talks back in a natural voice that runs on your device.
+- **Audit report** for energy and green audits, printable as PDF, with the stored 30-day action log; **weekly digest** to Telegram.
+- **Bring your own keys:** each workspace adds its own keys (Groq, Gemini, OpenAI, Anthropic, OpenRouter or any OpenAI-compatible service) and chooses which one handles chat, reports, photos and voice, with a fallback order. Keys are encrypted on the server and never shown again.
+
+### Act: from advice to a switch going off
+
+- One click on an alert card, a tap on the Telegram alert, or **automatic switch-off** after N empty minutes (with exempt rooms).
+- Commands reach a USB relay (Web Serial), Shelly smart plugs, Home Assistant, or any control system through a signed webhook.
+- A saving counts only once a camera, sensor or person confirms the devices went off.
+
+### Built for real sites
+
+- **Real data only.** A fresh install has no rooms and no numbers. A room nobody watches shows **No data**.
+- **Any site:** any currency, tariff and grid factor (India, UK, US and Singapore prefill with sources); one building or a campus; alerts in English, Hindi or Kannada.
+- **Workspaces and roles:** many teams on one deployment, each seeing only its own building; owner, manager and viewer roles; invite links; signed-in devices you can sign out.
+- **Connection doctor** checks every key, plug, bot and camera and says exactly what to fix.
+- **Public view** behind a QR code, with a "Lights left on here?" button for anyone passing by.
 
 ## Screens
 
-| Screen | Path | What It Does |
-| --- | --- | --- |
-| **Live Twin** | `/` | Floor plan, 3D view, time travel, alerts with one-click fixes, energy flow, Copilot |
-| **Room** | `/room/<id>` | Devices on, off and not observed; staff reports; CO₂; camera QR code; AI Surveyor |
-| **Cameras** | `/camera` | Several cameras per device and per room; zones per camera; every camera's live status; QR codes for phones; privacy inspector |
-| **Scenario Lab** | `/lab` | What-if policies over 20 modelled weeks; payback; energy intensity; observed utilization |
-| **Reports** | `/reports` | One-click audit report; Download PDF |
-| **Setup** | `/setup` | Set up with AI; site, money, floors, rooms, devices, integrations, import and export |
-| **Public View** | `/live` | What anyone sees after scanning the public QR code; no sign-in |
-
----
+| Group | Screen | Path | What it is for |
+| --- | --- | --- | --- |
+| Monitor | Overview | `/` | Health score, power, cost, waste, today's three actions, set-up checklist, live 3D |
+| Monitor | Building 3D | `/building` | The 3D twin: orbit, walk, edit, design with AI |
+| Monitor | Rooms | `/rooms`, `/room/:id` | Every room's status, people, power, inputs and camera coverage |
+| Monitor | Alerts | `/alerts` | Open, acknowledged and resolved alerts with their evidence and fix |
+| Analyse | Scenario Lab | `/lab` | What-if policies, payback, solar, utilization |
+| Analyse | Reports | `/reports` | Audit report, PDF, activity log with CSV |
+| Analyse | Trends | `/trends` | Day, week and month history |
+| Connect | Cameras | `/camera` | Camera station, zones, auto-find, privacy inspector |
+| Connect | Connections | `/connections` | Every input and output, plugs and Home Assistant entities per room |
+| Connect | Connection doctor | `/connections/doctor` | Every check and its fix |
+| Settings | Site | `/settings/site` | Building, money, hours, floors, rooms, devices, import and export |
+| Settings | Keys and AI | `/settings/keys` | Your own AI, Telegram, maps, plug and webhook keys |
+| Settings | Team | `/settings/team` | Roles, invite links, devices, password, export and delete |
+| | Public view | `/live` | What visitors see from the QR code; no sign-in |
 
 ## Architecture
 
 ```mermaid
 flowchart TB
     subgraph Inputs["Inputs"]
-        CAM["Camera page on any device<br/>MediaPipe person + face detection<br/>light, fan and screen zones"]
-        EDGE["Edge worker on campus LAN<br/>CCTV over RTSP"]
-        SENS["Sensors, meters, BMS,<br/>Home Assistant"]
+        CAM["Cameras in any browser<br/>MediaPipe, faces blurred<br/>only numbers leave"]
+        EDGE["Edge worker<br/>CCTV over RTSP"]
+        SENS["Sensors, plugs,<br/>Home Assistant"]
         STAFF["Staff reports"]
     end
-    subgraph Twin["Operator browser: the twin"]
-        STORE["Twin store, ticks every 2 s"]
-        SIM["What-if engine"]
-        RULES["Rules -> alerts -> facts pack"]
-        SERIAL["Web Serial -> USB relay"]
+    subgraph Browser["Operator browser"]
+        TWIN["Live twin, every 2 s"]
+        THREE["3D building and editor"]
+        LAB["What-if engine"]
     end
-    subgraph Cloud["Server"]
-        RT["Supabase Realtime + event log"]
-        API["Vercel functions<br/>AI, ingest, commands, Telegram"]
-        LLM["Groq, fallback Gemini"]
+    subgraph Server["Server: one Vercel function, or npm run dev"]
+        API["API router"]
+        TICK["Minute tick: alerts,<br/>Telegram, auto-off, history"]
+        AI["AI with the workspace's own keys<br/>grounding check"]
+        STORE[("Supabase, or a local file<br/>when Supabase is not set up")]
     end
-    OUT["Your control system<br/>signed command webhook"]
-    PUB["Phones: public view"]
+    OUT["Relay, Shelly, Home Assistant,<br/>signed webhook, Telegram"]
 
-    CAM -- "numbers only" --> RT
-    EDGE -- "numbers only" --> RT
-    SENS -- "/api/ingest" --> API --> RT
-    RT --> STORE
-    STAFF --> STORE
-    STORE --> SIM
-    STORE --> RULES -- facts pack --> API --> LLM
-    STORE -- command --> API --> OUT
-    STORE --> SERIAL
-    STORE -- snapshot --> RT --> PUB
+    CAM -- "readings" --> TWIN
+    CAM -- "readings" --> API
+    EDGE --> API
+    SENS -- "/api/ingest" --> API
+    STAFF --> TWIN
+    API <--> STORE
+    TICK <--> STORE
+    TWIN --> THREE
+    TWIN --> LAB
+    TWIN -- "facts pack" --> AI
+    TWIN -- "command" --> API --> OUT
+    TICK --> OUT
 ```
 
-Without Supabase keys, the browser's `BroadcastChannel` links the camera, twin and public tabs on one machine, so the whole loop runs offline.
+- **Where data lives:** with Supabase keys, in Supabase (Postgres with row-level security, and Realtime for phones). Without them, in `.pratibimb-data/` on the computer running `npm run dev`. `PRATIBIMB_STORAGE` can force either.
+- **One server function:** the whole API is `api/router.ts`, so it fits Vercel's free plan; the dev server runs the same router.
 
----
+## How it works
 
-## Tech Stack
+### From an empty room to a confirmed switch-off
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cam as Camera (browser)
+    participant Twin as Live twin
+    participant Srv as Server and minute tick
+    participant AI as AI provider (workspace key)
+    participant Staff as Facility staff (Telegram)
+    participant Dev as Relay, Shelly or Home Assistant
+
+    Cam->>Twin: head-count 0, lights on (numbers only, every 2 s)
+    Cam->>Srv: same reading, stored every 10 s
+    Note over Twin,Srv: Empty for the empty delay with power on: status becomes "wasting"
+    Srv->>Srv: code computes watts, cost per hour, kWh, CO2 (facts pack)
+    Srv->>AI: facts pack only, never an image
+    AI-->>Srv: a short reason in words
+    Srv->>Srv: grounding check: every figure must be in the facts pack
+    Srv->>Staff: alert card with a Switch off button
+    Staff->>Srv: tap Switch off
+    Srv->>Dev: signed command
+    Dev-->>Cam: lights go dark
+    Cam->>Twin: lights off seen by the camera
+    Twin->>Srv: switch-off confirmed by camera, saving counted
+```
+
+### Code computes, the AI writes words
+
+```mermaid
+flowchart LR
+    S["Readings from cameras,<br/>sensors and staff"] --> C["Code computes every number<br/>(energy.ts, the engine)"]
+    C --> F["Facts pack"]
+    F --> L["AI provider chosen by<br/>the workspace, with fallback"]
+    L --> G{"Every figure<br/>in the facts?"}
+    G -- yes --> OK["Shown to the person"]
+    G -- no --> R["Ask once more,<br/>naming the problems"]
+    R --> G2{"Grounded now?"}
+    G2 -- yes --> OK
+    G2 -- no --> T["Text written by code"]
+    T --> OK
+```
+
+### Where data lives
+
+```mermaid
+flowchart TB
+    Q{"Supabase keys set?<br/>(or PRATIBIMB_STORAGE)"}
+    Q -- "no: a fresh clone" --> L["Local file .pratibimb-data/<br/>workspaces, sites, keys, history<br/>minute tick run by npm run dev<br/>cameras in tabs of this browser"]
+    Q -- "yes: online" --> S["Supabase Postgres with row-level security<br/>Realtime for phones, cameras and sensors<br/>minute tick by pg_cron"]
+    L --> API["The same API router<br/>(api/router.ts)"]
+    S --> API
+```
+
+| Capability | Fresh clone, no keys | Clone with an AI key in Settings | Online (Supabase and Vercel) |
+| --- | --- | --- | --- |
+| Workspaces, building setup, 3D model and editing | Yes | Yes | Yes |
+| Cameras on this computer, live twin, alerts | Yes | Yes | Yes |
+| Scenario Lab, reports, activity log, history | Yes | Yes | Yes |
+| Minute tick: alerts and auto-off with the page closed | While `npm run dev` runs | While `npm run dev` runs | Always (pg_cron) |
+| AI-written reasons, reports, Assistant, AI designer | Text written by code | Yes | Yes |
+| Phones as cameras, sensors over the internet | No | No | Yes |
+| Telegram alerts, Shelly, Home Assistant | With their keys | With their keys | Yes |
+
+### The data model
+
+```mermaid
+erDiagram
+    WORKSPACES ||--o{ SITES : "site, cameras, AI choices, connections"
+    WORKSPACES ||--o{ EVENTS : "alerts, commands, confirmations"
+    WORKSPACES ||--o{ ROOM_INPUTS : "latest reading per camera or sensor"
+    WORKSPACES ||--|| TWIN_STATE : "last computed state"
+    WORKSPACES ||--o{ ROOM_HOURLY : "hourly energy, cost, waste, occupancy"
+    WORKSPACES ||--o{ SECRETS : "keys, AES-256-GCM"
+    WORKSPACES ||--o{ SESSIONS : "signed-in devices and roles"
+    WORKSPACES ||--o{ SETTINGS_LOG : "who changed what"
+    WORKSPACES {
+        text id PK
+        text name
+        text password_hash "scrypt"
+    }
+    SITES {
+        text id PK "workspace or workspace/doc"
+        jsonb site
+    }
+    EVENTS {
+        uuid id PK
+        timestamptz ts
+        text kind
+        jsonb payload
+    }
+    ROOM_INPUTS {
+        text workspace PK
+        text key PK
+        jsonb reading
+    }
+    SECRETS {
+        text workspace PK
+        text name PK
+        text ciphertext
+        text last4
+    }
+```
+
+### Editing the building
+
+Every change to the building, whether made with the editor's buttons or proposed by the AI designer, is one of a small set of design operations, applied by the same pure function and reviewed before it is saved.
+
+```mermaid
+flowchart LR
+    B["Editor buttons<br/>resize, recolour, add, remove"] --> O["Design operations<br/>addRoom, updateRoom, setDevices,<br/>setStyle, setFurniture, ..."]
+    A["Design with AI<br/>words or a room photo"] --> P["AI proposes operations"] --> K["Server keeps only valid ones<br/>(real rooms and floors)"] --> T["Person ticks the ones to apply"] --> O
+    M["OpenStreetMap outline"] --> O
+    O --> D["Draft with Undo"] --> V["Save: site stored,<br/>every device updates"]
+```
+
+## The 3D view
+
+| Key | Action |
+| --- | --- |
+| 1, 2, 3 | Orbit, walk, fly |
+| W A S D or arrows | Move; Shift for faster |
+| Q, E | Turn |
+| Space, C | Fly up, down |
+| K | Cutaway: lift the facade and roof |
+| X | Explode the floors |
+| L | Room list |
+| Z | Undo the last edit |
+| 0 | Reset the view |
+| Esc | Cancel, close, back to orbit |
+
+On a phone, a joystick appears for walking and dragging looks around.
+
+## API overview
+
+Every route is a Web-standard handler in `api/_routes/`, reached through one function, `api/router.ts`. Private routes need the workspace session (`Authorization: Bearer`); writes need the manager or owner role.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/workspace` | Create, open or join (invite) a workspace; `GET` its channels and sensor key; `DELETE` it |
+| `PUT /api/workspace/password`, `POST /api/workspace/invite`, `GET /api/workspace/export` | Change the password, make role invite links, export every stored row |
+| `GET`, `PUT /api/site` | The building |
+| `GET`, `PUT /api/cameras` | Camera settings, one camera at a time |
+| `POST /api/reading` | Camera readings (numbers only) |
+| `POST /api/ingest` | Sensor readings, with the workspace's sensor key |
+| `GET /api/state`, `GET /api/history` | The last computed twin, hourly history |
+| `POST /api/command`, `POST /api/alert` | Send a switch-off; send an alert to Telegram |
+| `GET`, `PUT`, `DELETE /api/keys`, `POST /api/keys/test`, `PUT /api/keys/ai` | Bring your own keys, test them, choose providers |
+| `GET`, `PUT /api/connections` | Smart plugs and Home Assistant entities per room |
+| `POST /api/telegram/connect`, `POST /api/telegram` | Connect a bot; the bot's webhook |
+| `GET /api/doctor`, `GET /api/status`, `GET /api/health` | Connection checks, what is set up, uptime |
+| `POST /api/tick`, `GET /api/digest` | The minute tick and the weekly digest (server secret) |
+| `POST /api/ai/recommend`, `report`, `copilot`, `setup`, `surveyor`, `floorplan`, `design`, `transcribe` | The AI features, all grounded or checked |
+| `GET`, `POST /api/events`, `POST /api/report` | The action log; a visitor's "lights left on" report |
+
+## Tech stack
 
 | Layer | Technology |
 | --- | --- |
 | Frontend | React 19, Vite 8, TypeScript (strict), Tailwind 4, shadcn/ui, lucide-react |
-| Computer Vision | MediaPipe Tasks Vision (Apache-2.0), models served locally, CPU delegate |
-| Twin and Simulation | Zustand, plain TypeScript, seeded Monte Carlo |
-| Realtime and Storage | Supabase broadcast and Postgres; `BroadcastChannel` locally |
-| AI | Groq and Gemini through their OpenAI-compatible APIs, Zod-validated, grounding check |
-| Integrations | Ingest API, HMAC-signed command webhook, Telegram Bot API, MediaMTX, Python edge worker |
+| 3D | three.js, React Three Fiber, drei, three-mesh-bvh |
+| Computer vision | MediaPipe Tasks Vision (Apache-2.0), models served locally |
+| Twin and simulation | Zustand, plain TypeScript, seeded Monte Carlo |
+| Storage and realtime | Supabase Postgres and Realtime, or a local JSON file; `BroadcastChannel` between tabs |
+| AI | Groq, Gemini, OpenAI, Anthropic, OpenRouter or any OpenAI-compatible API, with the workspace's own keys; Zod-validated answers; Kokoro voice on the device |
+| Integrations | Ingest API, Shelly Cloud, Home Assistant, HMAC-signed webhook, Telegram Bot API, Web Serial relay, MediaMTX, Python edge worker, OpenStreetMap, Open-Meteo |
 | Hosting | Vercel, with CSP and security headers |
 
----
+## Quality, testing and security
 
-## Quality and Testing
-
-- **89 automated tests** (`npm test`) cover:
-  - Energy maths, the CO₂ model, camera merging, light and fan zones
-  - The full twin loop with real inputs only, and visitor reports that never touch device states
-  - Sensor ingest, staff confirmation and unknown rooms
-  - The what-if engine and the automatic floor layout
-  - Grounding and the AI retry and fallback
-  - Every API route through the router, including workspaces (hashing, signed sessions, forged and expired tokens), per-workspace isolation
-  - Set up with AI: invented numbers dropped, injected text unable to change the answer's shape
-  - Site sync that never overwrites an edit that failed to upload
-
-- The Python edge worker has its own self-test.
-- Person detection was checked on sample photos in the browser and in Python (person scores 0.98 and 0.95 in both).
-- An axe-core accessibility audit finds no violations on any page, and every text colour meets WCAG AA contrast.
-- Strict TypeScript across app and server. Every data panel has loading, empty, error and success states. Error boundaries keep one broken panel from blanking a page.
+- **213 automated tests** (`npm test`) cover the energy and CO₂ maths, camera merging, light and fan zones, auto-find and coverage, the full twin loop, the what-if engine, the 3D model and every design operation, grounding and the AI fallbacks, every API route through the router (workspaces, roles, isolation between workspaces, keys, the tick), and a full journey on local storage with no Supabase.
+- `tests/journey.mjs` drives the whole API against a running server and cleans up after itself.
+- Strict TypeScript across app and server; `npm run lint` with no errors.
+- An axe-core audit of every page in light and dark themes; status is never shown by colour alone; every page works at 375 px wide.
 - **Security:**
-  - Workspaces with scrypt password hashes and signed sessions; every private route acts only on the caller's workspace
-  - A private live channel per workspace, named with a server-derived secret, and a separate snapshot-only public channel
-  - A sensor key per workspace on ingest
-  - Telegram's secret header on the webhook, and switch-off taps accepted only from the workspace's own chat
-  - HMAC on outgoing commands
-  - Zod validation and size limits on every request
-  - Incoming realtime messages validated before use
-  - Rate limits, CSP and security headers
-  - No secrets in the repository
+  - workspace passwords hashed with scrypt; HMAC-signed sessions; roles enforced on every write;
+  - customer keys encrypted with AES-256-GCM under a per-workspace key, never returned to the browser, never logged;
+  - addresses customers type in are checked so the server cannot be pointed at a private network;
+  - a private live channel per workspace and a separate snapshot-only public channel;
+  - a sensor key per workspace; Telegram's secret header; HMAC on outgoing commands;
+  - Zod validation and size limits on every request; rate limits; CSP and security headers;
+  - no secrets in the repository.
 
----
-
-## Repository Map
+## Repository map
 
 ```
-pratibimb/
-├── src/                    # Frontend source code
-│   ├── ai/                 # AI client, offline templates, Copilot tools
-│   ├── components/ui/      # shadcn/ui components
-│   ├── cv/                 # Camera station, detector, device zones
-│   ├── lib/                # Utility functions
-│   ├── relay/              # Web Serial relay control
-│   ├── shared/             # Shared types, config, site model
-│   ├── sim/                # What-if simulation engine
-│   ├── test/               # Test fixtures
-│   ├── twin/               # Live twin store, energy, CO₂, rules
-│   └── ui/                 # Pages, layout, 3D view, components
-├── api/                    # Vercel serverless functions
-│   ├── _lib/               # Auth, DB, grounding, LLM utilities
-│   ├── _routes/            # API route handlers
-│   │   └── ai/             # AI endpoints (recommend, copilot, report, setup)
-│   └── router.ts           # API router
-├── edge/                   # Python edge worker for CCTV
-├── firmware/relay/         # Arduino relay firmware
-├── docs/                   # All documentation
-├── supabase/               # Database schema
-├── scripts/                # Build scripts
-├── public/                 # Static assets and ML models
-├── tests/                  # Integration/journey tests
-├── .env.example            # Environment variable template (safe to copy)
-├── package.json            # Dependencies and scripts
-├── vercel.json             # Vercel deployment config
-├── vite.config.ts          # Vite build config
-└── tsconfig*.json          # TypeScript configs
+.
+├── src/
+│   ├── ai/            AI client, offline templates, Assistant tools, report facts
+│   ├── cv/            camera station, detector, zones, auto-find, coverage
+│   ├── relay/         USB relay over Web Serial
+│   ├── shared/        shared types, constants, the site model, the signed-in workspace
+│   ├── sim/           what-if engine
+│   ├── twin/          live twin, energy and CO₂ maths, rules, realtime
+│   ├── ui/            app shell, pages, components
+│   │   ├── 3d/        the 3D building, editor and AI designer
+│   │   └── assistant/ the Assistant panel and voice
+│   └── components/ui/ shadcn/ui components
+├── api/
+│   ├── router.ts      the one server function
+│   ├── _lib/          auth, storage (Supabase or local), keys, AI providers, grounding
+│   └── _routes/       one file per route; ai/ for the AI routes
+├── edge/              Python edge worker for CCTV
+├── firmware/relay/    relay sketch for Arduino or ESP32
+├── supabase/          database schema
+├── tests/             end-to-end API journey
+├── docs/              documentation
+└── public/            static files and the vision models
 ```
 
-### Module Ownership
-
-| Path | What It Holds | Owner |
-| --- | --- | --- |
-| `src/cv/`, `edge/` | Camera station (several cameras per device), per-camera settings, detector, device zones, camera sources; Python edge worker and MediaMTX config | Aditya |
-| `src/relay/`, `firmware/`, `api/_routes/` (cameras, command, alert, telegram, ingest, report) | Relay, camera settings, commands, Telegram, sensor ingest, visitor tips | Aditya |
-| `src/twin/` | Live twin store, energy and CO₂ maths, rules, camera merge, realtime, recorded utilization | Priyanshu |
-| `src/sim/` | What-if engine and Monte Carlo | Priyanshu |
-| `src/ai/`, `api/router.ts`, `api/_routes/ai/`, `api/_lib/` | AI client, offline templates, Copilot tools, AI endpoints (Set up with AI included), grounding check, the API router, workspace auth | Priyanshu |
-| `src/shared/` | Shared types, engineering constants, the site model, the signed-in workspace | Priyanshu |
-| `src/ui/` | Workspace sign-in, Live Twin, Room, Scenario Lab, Reports, Setup, Public view | Neev |
-| `docs/` | Research, build spec, design system, integrations, deployment, user guide, site survey | All |
-
----
+| Area | Owner |
+| --- | --- |
+| Computer vision, cameras, relay, edge worker, sensor ingest, Telegram | Aditya Raj |
+| Twin, simulation, AI, server and storage, shared model | Priyanshu Shaurya |
+| Interface, 3D presentation, design system, public view, pitch | Neev Pujari |
 
 ## Documentation
 
-| Document | Read It For |
+| Document | Read it for |
 | --- | --- |
-| [docs/RESEARCH_MASTER_PLAN.md](docs/RESEARCH_MASTER_PLAN.md) | The research: problem, prior work, design choices, sources, pitch, judge Q&A |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Putting it online for free: GitHub, Supabase, Vercel, AI keys, Telegram |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Step by step: run it, set up a building, connect cameras, use every screen |
-| [docs/BUILD_SPEC.md](docs/BUILD_SPEC.md) | Contracts, ownership, data rules, module checks, security, camera options |
-| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Site file, sensor API, Home Assistant, command webhook, CCTV |
-| [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | Warm light theme, tokens, status language, screens, accessibility |
-| [docs/SITE_SURVEY.md](docs/SITE_SURVEY.md) | The worksheet for onboarding a new building |
-| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | Test report: feature checks, bug fixes, manual test results |
-| [docs/PLAN.md](docs/PLAN.md) | The development plan: phases, rules, build sessions |
-| [docs/LAUNCH_PLAN.md](docs/LAUNCH_PLAN.md) | Launch plan: workspaces, multi-camera, AI setup, free hosting |
-| [CHANGELOG.md](CHANGELOG.md) | What was done, session by session |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Putting it online for free: Supabase, Vercel, keys, Telegram, the 24/7 tick |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Site file, sensor API, Shelly, Home Assistant, command webhook, CCTV |
+| [docs/BUILD_SPEC.md](docs/BUILD_SPEC.md) | Contracts, data rules, module checks, security |
+| [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) | Theme, tokens, status language, app shell, the 3D twin, accessibility |
+| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | What was tested and the results |
+| [docs/RESEARCH_MASTER_PLAN.md](docs/RESEARCH_MASTER_PLAN.md) | The research behind the design, with sources |
+| [docs/SITE_SURVEY.md](docs/SITE_SURVEY.md) | Worksheet for onboarding a new building |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
----
+## Put it online
 
-## Deployment
+Copy `.env.example` to `.env` (local) or set the same values in Vercel (online). Every value is optional. [docs/DEPLOY.md](docs/DEPLOY.md) covers Supabase (run `supabase/schema.sql` once), Vercel, the minute tick, AI keys and Telegram, with a check for every feature.
 
-### Environment Variables
-
-Copy `.env.example` to `.env` and fill in your keys. Every key is **optional** — without keys the app runs on one machine with workspaces kept in the browser.
-
-```bash
-cp .env.example .env
-```
-
-See [docs/DEPLOY.md](docs/DEPLOY.md) for the full deployment guide covering:
-- **Supabase** (free plan): Realtime channels, Postgres storage, workspace auth
-- **Vercel** (free plan): Hosting, serverless functions, cron jobs
-- **Groq / Gemini** (free tiers): AI recommendations, Copilot, reports
-- **Telegram** (free): Alerts with switch-off buttons, weekly digest
-
-### Vercel Deployment
-
-1. Fork or import this repository on [Vercel](https://vercel.com)
-2. Set the environment variables from `.env.example` in Vercel's project settings
-3. Deploy — the `vercel.json` configures everything automatically
-
----
-
-## Team Barfi
+## Team
 
 | Member | Module |
 | --- | --- |
-| **Priyanshu Shaurya** | Digital twin, simulation engine, generative AI, integration (Mirror, Simulate, Advise) |
+| **Priyanshu Shaurya** | Digital twin, simulation engine, generative AI, server (Mirror, Simulate, Advise) |
 | **Aditya Raj** | Computer vision, cameras, relay hardware, sensors, Telegram (Sense, Act) |
 | **Neev Pujari** | User interface, setup, public view, design, pitch (Show) |
 
----
+## How we built it
 
-## How We Used AI Tools
+We wrote the contracts first ([docs/BUILD_SPEC.md](docs/BUILD_SPEC.md)) and built the modules with AI coding assistants, one module per person. Every module was run and checked by its owner, who can explain every file. Libraries and pretrained models are used as libraries; no other project's application code was copied.
 
-We built Pratibimb with AI coding assistants, driven by the contracts in [docs/BUILD_SPEC.md](docs/BUILD_SPEC.md). Every module was run and checked by its owner, who can explain every file. Libraries and pretrained models are used as libraries; no other project's application code was copied.
-
----
-
-## Research We Build On
+## Research we build on
 
 - US EPA occupancy sensor study, 158 rooms in 60 buildings ([EC&M summary](https://www.ecmweb.com/contractor/epa-study-shows-occupancy-sensors-reduce-energy-waste-demand))
 - Tien et al., camera-based occupancy and equipment detection ([Energies](https://doaj.org/article/3ef96fc779284e3c8572d37cf2e4f008))
 - Camera-based occupant activity detection in a university building ([Applied Energy, Cardiff ORCA](https://orca.cardiff.ac.uk/178040))
 - Building vocabulary from [Brick Schema](https://brickschema.org/)
-- Geocoding, weather and air quality from [Open-Meteo](https://open-meteo.com) (CC BY 4.0)
-
----
+- Geocoding, weather and air quality from [Open-Meteo](https://open-meteo.com) (CC BY 4.0); building outlines from [OpenStreetMap](https://www.openstreetmap.org/copyright) (ODbL)
 
 ## License
 
-MIT, see [LICENSE](LICENSE). MediaPipe models are Apache-2.0.
+MIT, see [LICENSE](LICENSE): anyone may clone, run, change and share this code, keeping the licence notice. The MediaPipe models are Apache-2.0 and the Kokoro voice model is Apache-2.0.

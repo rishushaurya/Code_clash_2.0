@@ -181,7 +181,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Without Supabase keys, the first page keeps the workspace in this browser only (its password hashed in the browser). Cameras work in tabs of the same browser and the twin computes everything; phones, Telegram, stored events and Set up with AI need the online version. To use the online features locally, copy `.env.example` to `.env`, fill in the same keys, and restart `npm run dev`; the dev server runs the same API as Vercel.
+Open `http://localhost:5173`. Without Supabase keys, the server keeps workspaces, sites, keys added in the app, events and history in `.pratibimb-data/` on this computer (ignored by git) and runs the minute tick itself, so every page works. Cameras work in tabs of the same browser; phones over the internet need Supabase. To use Supabase locally, copy `.env.example` to `.env`, fill in the same keys, and restart `npm run dev`; the dev server runs the same API as Vercel. `PRATIBIMB_STORAGE=local` keeps the local file even with Supabase keys set.
 
 ## 10. When something does not work
 

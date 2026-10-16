@@ -12,7 +12,7 @@ How to run Pratibimb, set up a building, connect cameras and sensors, and use ev
 | CV: occupancy | Cameras page | MediaPipe person detection in the browser counts people inside a marked room boundary. |
 | CV: lighting | Cameras page | A box around each light is read by brightness against an "on" and an "off" recording. |
 | CV: resource usage | Cameras page, sensor API | Fans by motion, projector screens by brightness; meters and smart plugs through `/api/ingest`. |
-| GenAI analyses the data | Alerts, Patterns, Copilot, Reports | The AI receives a facts pack computed by code and explains it. It cannot invent numbers: a grounding check rejects any figure not in the facts. |
+| GenAI analyses the data | Alerts, Patterns, Assistant, Reports | The AI receives a facts pack computed by code and explains it. It cannot invent numbers: a grounding check rejects any figure not in the facts. |
 | Recommendations: energy efficiency | Alert cards, Patterns | "Room empty with lights on" with a one-click switch-off and the saving; recurring waste such as "LH-1, Fridays at 16:00". |
 | Recommendations: indoor sustainability | Room page, alerts | CO2 (measured or estimated from head-count) with ventilation advice checked against outdoor air quality; AC advice when outdoor air is mild or a room is overcooled. |
 | Recommendations: resource utilization | Scenario Lab | Observed room-by-hour occupancy, underused large rooms, and a "move small classes" policy. |
@@ -43,7 +43,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. With no keys, everything below works on one computer: workspaces kept in this browser, cameras in tabs of this browser, the twin, the Scenario Lab, reports and the public view, with the AI answering from templates. Phones, Telegram, stored history and Set up with AI need the online version ([DEPLOY.md](DEPLOY.md)).
+Open http://localhost:5173. With no keys and no account, everything below works on this computer: the server keeps workspaces, the building, your keys and history in `.pratibimb-data/` (ignored by git) and runs the minute tick itself. Cameras work in tabs of this browser. Add an AI key in Settings, Keys and AI for the Assistant, the AI designer and AI-written reports; without one, code writes the text. Phones as cameras over the internet need the online version ([DEPLOY.md](DEPLOY.md)).
 
 ## 3. Open or create a workspace
 
@@ -95,7 +95,10 @@ Cameras keep running while you use the other pages in the same tab, and start ag
 
 | Screen | What to do there |
 | --- | --- |
-| **Live twin** (`/`) | Rooms turn green (occupied), grey (idle), red (empty with power on) or dashed (no data). Act on alert cards with one click. Ask the Copilot. Drag the timeline to look back. |
+| **Overview** (`/`) | Health score, power, cost and waste now, today's three actions, the set-up checklist and a live mini 3D view. |
+| **Building 3D** (`/building`) | Rooms turn green (occupied), grey (idle), red (empty with power on) or dashed (no data). Orbit, walk in or fly; Cutaway (K) lifts the roof. **Edit** to resize, recolour, add or remove rooms, floors, devices and furniture, with Undo; **Design with AI** to describe a change or paste a room photo; **Outline** to generate the building from OpenStreetMap. |
+| **Rooms** (`/rooms`) and **Alerts** (`/alerts`) | Every room's status and inputs; every alert with its evidence and a one-click fix. |
+| **Assistant** (button at the top) | Ask anything about the building; it explains numbers, guides connecting rooms, runs what-ifs and proposes changes you approve. |
 | **Room** (click a room) | Devices on, off and not observed; its cameras with live status; CO2, temperature, humidity; staff can report "lights are off" to confirm a switch-off. The AI Surveyor counts devices from a photo. |
 | **Scenario Lab** (`/lab`) | Compare a policy (auto-off, daylight, consolidate, combined) with today over modelled weeks, labelled **Modelled**; business case, payback, rooftop solar, observed utilization. |
 | **Reports** (`/reports`) | One-click audit report; Download PDF; activity log as CSV. |

@@ -26,12 +26,13 @@ This is the engineering contract for Pratibimb: data rules, folder ownership, sh
 | Computer vision | `@mediapipe/tasks-vision`: EfficientDet-Lite0 (person), BlazeFace (faces), CPU delegate, every 500 ms; brightness and motion zones on canvas | Apache-2.0; local model files work offline; the int8 model misclassifies on the WebGL GPU delegate |
 | Charts | Recharts through shadcn `chart`, including `Sankey` | One chart library |
 | Realtime | Supabase broadcast when keys exist; `BroadcastChannel` always | Devices over the internet; tabs of one browser with no setup |
-| Event log | Supabase Postgres, one table | Action-taken record for audits |
+| Storage | Supabase Postgres (workspaces, sites, events, inputs, twin state, hourly history, encrypted keys, sessions); without Supabase, the same calls answered from `.pratibimb-data/` on the local computer (`api/_lib/local.ts`) | Works online and on a fresh clone with no account |
+| 3D | three.js, React Three Fiber, drei, three-mesh-bvh; building, facade, grounds, furniture and live state computed from the site; edits go through design operations (`src/ui/3d/design.ts`) | One model for viewing, editing and the AI designer |
 | Server | One Vercel function, `api/router.ts`, routing to Web-standard handlers in `api/_routes`; the same router serves `npm run dev` | Secrets stay server-side; fits Vercel Hobby's 12-function limit |
-| Workspaces | Name and password; scrypt hash in Supabase; HMAC-signed 30-day sessions; channel names and sensor keys derived from `WORKSPACE_SECRET`; a browser-only workspace (PBKDF2) without server storage | Many customers on one deployment, no auth vendor |
-| AI | Plain `fetch` to Groq, then Gemini (OpenAI-compatible APIs); Zod; grounding retry | No SDK needed |
+| Workspaces | Name and password; scrypt hash in storage; HMAC-signed 30-day sessions with roles (owner, manager, viewer); channel names and sensor keys derived from `WORKSPACE_SECRET` (made automatically on a local copy) | Many customers on one deployment, no auth vendor |
+| AI | Plain `fetch` to the workspace's chosen provider (Groq, Gemini, OpenAI, Anthropic, OpenRouter or any OpenAI-compatible API), keys encrypted per workspace, with a fallback order; Zod; grounding retry | No SDK needed; customers bring their own keys |
 | Integrations | Ingest API with key, HMAC-signed command webhook, Telegram Bot API, MediaMTX, Python edge worker | Fits whatever the building already has |
-| Tests | Vitest (79 tests), Python self-test, axe-core accessibility audit of every page | |
+| Tests | Vitest (213 tests), `tests/journey.mjs` end-to-end API run, Python self-test, axe-core audit of every page in both themes | |
 
 ## 3. Folder map and ownership
 
@@ -80,7 +81,7 @@ src/
   twin/energy.ts, co2.ts, merge.ts, rules.ts, realtime.ts
   twin/usage.ts            observed utilization, left-on share, opening hours and waste patterns
   sim/engine.ts            what-if engine (+ test)
-  ai/                      client, offline templates, Copilot tools, report facts, waste-pattern facts
+  ai/                      client, offline templates, Assistant tools, report facts, waste-pattern facts
   cv/                      CameraStation (several cameras per device, all cameras of the workspace, QR for phones),
                            CameraFeed (one camera), cameras.ts (saved settings, live status), station.ts (this device's
                            cameras), detector, device zones (+ test), camera sources
@@ -193,11 +194,13 @@ Formulas: `kWh = W × s / 3,600,000`; `cost = kWh × tariff`; `CO2 = kWh × fact
 
 | Item | Why |
 | --- | --- |
-| Organization id on the stored site, and per-organization access | Multi-tenant hosting; a deployment shares one site today |
-| Utilization and event history in the database | Month-long evidence for audits |
 | Learn the left-on probability from observed history | Replace the last modelling assumption with data |
+| Timetable import (CSV or ICS) and an occupancy forecast per room | What-ifs from the real class schedule |
+| Live sensor delivery on a local copy without Supabase | Today local sensor readings are stored and handled by the minute tick, not pushed to an open page |
+| Google Photorealistic 3D Tiles around the building, with the customer's own key | City context in the 3D view |
+| IFC import for buildings with a BIM model | Onboard large buildings from their drawings |
+| An open-vocabulary detector for fixtures (OWLv2, on the device) | Find lights and fans without switching them |
 | More grid factor presets (India, UK, US and Singapore are in, each with its source) | Faster onboarding elsewhere |
-| Photoreal room scans | Investor and judge appeal; not needed for savings |
 
 ## 11. Run, test, deploy
 
